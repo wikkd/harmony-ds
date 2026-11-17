@@ -304,6 +304,16 @@ export class ChatStore {
     return true;
   }
 
+  /** 导入完成后重建本地状态 */
+  async reloadAfterImport(): Promise<void> {
+    this.setStreaming(null);
+    this.sessions = [];
+    this.loadedSessions.clear();
+    this.visible = [];
+    this.ready = false;
+    await this.restore();
+  }
+
   /** 持久化一条消息（upsert） */
   async persistMessage(session: Session, m: Message): Promise<void> {
     await ChatDb.updateMessage(session.id, session.messages.length, m);

@@ -7,8 +7,11 @@ import { ApiError } from '../../service/api/ApiError';
 import { AppContextHolder } from '../../common/AppContextHolder';
 import { ThemeHelper } from '../../common/ThemeHelper';
 import { ChatStore } from '../../service/chat/ChatStore';
+import { HistoryArchive, ArchiveError } from '../../service/history/HistoryArchive';
 import { UserLocation } from '../../model/SettingsTypes';
 import { promptAction } from '@kit.ArkUI';
+import { picker } from '@kit.CoreFileKit';
+import fs from '@ohos.file.fs';
 import { Logger } from '../../common/Logger';
 
 /** 省份/地区（位置信息用于联网搜索本地化） */
@@ -173,8 +176,12 @@ export struct SettingsPage {
               this.confirmDeleteAll();
             })
 
-            this.row(I18n.translate('historyImport') + ' / ' + I18n.translate('exportAllLabel'), '', (): void => {
-              promptAction.showToast({ message: 'M8', duration: 1200 });
+            this.row(I18n.translate('historyImport'), '', (): void => {
+              this.confirmImport();
+            })
+
+            this.row(I18n.translate('exportAllLabel'), '', (): void => {
+              this.doExport();
             })
 
             // ---------- 关于 ----------
@@ -332,6 +339,80 @@ export struct SettingsPage {
       });
     } catch (err) {
       // 忽略
+    }
+  }
+
+  /** 导入历史对话：选择 ZIP → 确认覆盖 → 解析替换 */
+  private confirmImport(): void {
+    const buttons: Array<promptAction.Button> = [];
+    const bCancel: promptAction.Button = { text: I18n.translate('cancel'), color: '#66000000' };
+    const bConfirm: promptAction.Button = { text: I18n.translate('historyImportConfirm'), color: '#0A59F7' };
+    buttons.push(bCancel);
+    buttons.push(bConfirm);
+    const options: promptAction.ShowDialogOptions = {
+      title: I18n.translate('historyImportConfirmTitle'),
+      message: I18n.translate('historyImportConfirmDescription'),
+      buttons: buttons,
+      alignment: DialogAlignment.Center,
+    };
+    try {
+      promptAction.showDialog(options).then((result) => {
+        if (result.index === 1) {
+          this.pickAndImport();
+        }
+      });
+    } catch (err) {
+      // 忽略
+    }
+  }
+
+  private async pickAndImport(): Promise<void> {
+    try {
+      const docPicker = new picker.DocumentViewPicker();
+      const selectOptions = new picker.DocumentSelectOptions();
+      selectOptions.fileSuffixFilters = ['.zip'];
+      const uris = await docPicker.select(selectOptions);
+      if (uris.length === 0) {
+        return;
+      }
+      const context = AppContextHolder.get();
+      const tmp = `${context.cacheDir}/import_${Date.now()}.zip`;
+      fs.copyFileSync(uris[0], tmp);
+      const count = await HistoryArchive.importZip(tmp);
+      await this.store.reloadAfterImport();
+      try {
+        fs.unlinkSync(tmp);
+      } catch (e) {
+        // 忽略
+      }
+      promptAction.showToast({
+        message: I18n.translate(count === 1 ? 'historyImportedOne' : 'historyImported', { 'count': `${count}` }),
+        duration: 2000,
+      });
+    } catch (err) {
+      const key = err instanceof ArchiveError ? (err as ArchiveError).key : 'historyImportFailed';
+      promptAction.showToast({ message: I18n.translate(key), duration: 2500 });
+      Logger.warn('SettingsPage', `import failed: ${JSON.stringify(err)}`);
+    }
+  }
+
+  /** 导出全部会话到用户选择的 ZIP */
+  private async doExport(): Promise<void> {
+    try {
+      const produced = await HistoryArchive.exportZip();
+      // 另存为
+      const docPicker = new picker.DocumentViewPicker();
+      const saveOptions = new picker.DocumentSaveOptions();
+      saveOptions.newFileNames = [HistoryArchive.baseName(produced)];
+      const result = await docPicker.save(saveOptions);
+      if (result.length > 0) {
+        fs.copyFileSync(produced, result[0]);
+        promptAction.showToast({ message: I18n.translate('historyDeleted'), duration: 1500 });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? (err as Error).message : `${JSON.stringify(err)}`;
+      promptAction.showToast({ message: I18n.translate('historyExportFailed', { 'message': message }), duration: 2500 });
+      Logger.warn('SettingsPage', `export failed: ${JSON.stringify(err)}`);
     }
   }
 }
