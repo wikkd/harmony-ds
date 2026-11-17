@@ -18,6 +18,22 @@ import { MarkdownView } from '../markdown/MarkdownView';
 import { AppContextHolder } from '../../common/AppContextHolder';
 import { common, Context, Want } from '@kit.AbilityKit';
 import { Logger } from '../../common/Logger';
+import { SpeechApi } from '../../service/speech/SpeechApi';
+import { TtsPlayer } from '../../service/speech/TtsPlayer';
+import { KeyVault } from '../../prefs/KeyVault';
+import { SettingsStore } from '../../prefs/SettingsStore';
+
+/** 全局唯一 TTS 播放器（新朗读会停止旧的） */
+class TtsActive {
+  static current: TtsPlayer | null = null;
+
+  static stop(): void {
+    if (TtsActive.current !== null) {
+      TtsActive.current.stop().catch(() => {});
+      TtsActive.current = null;
+    }
+  }
+}
 
 /**
  * 消息列表：用户右侧品牌色气泡，助手左侧排版（鸿蒙设计语言）。
@@ -93,28 +109,11 @@ export struct MessageList {
   assistantRow(m: AssistantMessage) {
     Column({ space: 6 }) {
       this.branchSwitcher(m)
-      AssistantBody({ message: m })
-      Row({ space: 12 }) {
-        if (m.status === 'done' || m.status === 'stopped') {
-          Image($r('app.media.ic_public_copy'))
-            .width(16)
-            .height(16)
-            .fillColor($r('app.color.text_tertiary'))
-            .onClick(() => {
-              copyToClipboard(replyTextOf(m));
-            })
-          Image($r('app.media.ic_public_refresh'))
-            .width(16)
-            .height(16)
-            .fillColor($r('app.color.text_tertiary'))
-            .onClick(() => {
-              if (!this.isLocked(m)) {
-                this.regenerate(m);
-              }
-            })
+      AssistantBody({ message: m, onRegenerate: (): void => {
+        if (!this.isLocked(m)) {
+          this.regenerate(m);
         }
-      }
-      .width('100%')
+      } })
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
@@ -199,10 +198,13 @@ function copyToClipboard(text: string): void {
 @ComponentV2
 struct AssistantBody {
   @Param message: AssistantMessage = new AssistantMessage('0', 0);
+  @Param onRegenerate: () => void = () => {};
   @Local thinkingOpen: boolean = false;
+  @Local ttsPlaying: boolean = false;
 
   build() {
     Column({ space: 8 }) {
+      // 思考折叠块
       ForEach(this.thinkingBlocks(), (t: ThinkingPart) => {
         Column() {
           Row({ space: 6 }) {
@@ -322,6 +324,34 @@ struct AssistantBody {
         .borderRadius(Dim.radiusM)
         .width('100%')
       }
+
+      // 操作行：复制 / 朗读 / 重新生成
+      if (this.message.status === 'done' || this.message.status === 'stopped') {
+        Row({ space: 14 }) {
+          Image($r('app.media.ic_public_copy'))
+            .width(16)
+            .height(16)
+            .fillColor($r('app.color.text_tertiary'))
+            .onClick(() => {
+              copyToClipboard(replyTextOf(this.message));
+            })
+          Image(this.ttsPlaying ? $r('app.media.ic_public_sound_off') : $r('app.media.ic_public_sound'))
+            .width(16)
+            .height(16)
+            .fillColor($r('app.color.text_tertiary'))
+            .onClick(() => {
+              this.toggleTts(this.message);
+            })
+          Image($r('app.media.ic_public_refresh'))
+            .width(16)
+            .height(16)
+            .fillColor($r('app.color.text_tertiary'))
+            .onClick(() => {
+              this.onRegenerate();
+            })
+        }
+        .width('100%')
+      }
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
@@ -363,9 +393,56 @@ struct AssistantBody {
     return I18n.translate('apiKeyVerificationFailed', { 'message': err.message });
   }
 
+  /** 朗读 / 停止朗读（TTS 流式播放） */
+  private toggleTts(m: AssistantMessage): void {
+    if (this.ttsPlaying) {
+      TtsActive.stop();
+      this.ttsPlaying = false;
+      return;
+    }
+    const text = replyTextOf(m).trim();
+    if (text === '') {
+      return;
+    }
+    KeyVault.load(AppContextHolder.get()).then((apiKey: string | null) => {
+      if (apiKey === null || apiKey === '') {
+        return;
+      }
+      const player = new TtsPlayer();
+      TtsActive.current = player;
+      this.ttsPlaying = true;
+      player.start().then(() => {
+        return new Promise<void>((resolve) => {
+          SpeechApi.synthesize(apiKey, text, SettingsStore.get().ttsVoice, {
+            onChunk: (chunk: ArrayBuffer) => {
+              player.write(chunk);
+            },
+            onDone: () => {
+              player.drain().then(() => player.stop()).catch(() => {});
+              if (TtsActive.current === player) {
+                TtsActive.current = null;
+              }
+              this.ttsPlaying = false;
+              resolve();
+            },
+            onError: () => {
+              player.stop().catch(() => {});
+              if (TtsActive.current === player) {
+                TtsActive.current = null;
+              }
+              this.ttsPlaying = false;
+              resolve();
+            },
+          });
+        });
+      }).catch(() => {
+        this.ttsPlaying = false;
+      });
+    });
+  }
+
   /** 汇总正文引用为去重来源卡 */
-  private citationCards(): CitationCard[] {
-    const out: CitationCard[] = [];
+  private citationCards(): CitationCard[] {    const out: CitationCard[] = [];
     const seen: Set<string> = new Set();
     for (const b of this.message.blocks) {
       if (b.type !== 'text') {

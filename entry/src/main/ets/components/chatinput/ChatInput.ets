@@ -3,6 +3,7 @@ import { Dim } from '../../common/DesignTokens';
 import { KeyVault } from '../../prefs/KeyVault';
 import { AppContextHolder } from '../../common/AppContextHolder';
 import { SettingsStore } from '../../prefs/SettingsStore';
+import { VoiceButton } from './VoiceButton';
 import { Logger } from '../../common/Logger';
 
 /** 底部输入区：圆角容器 + TextArea + 发送/停止按钮（鸿蒙设计语言） */
@@ -16,6 +17,7 @@ export struct ChatInput {
   @Param onCancelEdit: () => void = () => {};
   @Param onStop: () => void = () => {};
   settings: SettingsStore = SettingsStore.get();
+  @Local voiceActive: boolean = false;
 
   @Builder
   toggle(label: string, on: boolean, onTap: () => void) {
@@ -34,18 +36,39 @@ export struct ChatInput {
 
   build() {
     Column() {
-      // 工具行：深度思考 / 智能搜索
-      Row({ space: 8 }) {
-        this.toggle(I18n.translate('thinkingSwitch'), this.settings.thinking, (): void => {
-          this.settings.setThinking(!this.settings.thinking);
+      if (this.voiceActive) {
+        // 语音输入激活面板
+        VoiceButton({
+          onText: (text: string) => {
+            this.voiceActive = false;
+            this.onTextChange(text);
+          },
+          onDismiss: () => {
+            this.voiceActive = false;
+          },
         })
-        this.toggle(I18n.translate('search'), this.settings.search, (): void => {
-          this.settings.setSearch(!this.settings.search);
-        })
-        Blank()
+      } else {
+        // 工具行：语音 / 深度思考 / 智能搜索
+        Row({ space: 8 }) {
+          Image($r('app.media.ic_public_voice'))
+            .width(24)
+            .height(24)
+            .padding(1)
+            .fillColor($r('app.color.text_secondary'))
+            .onClick(() => {
+              this.voiceActive = true;
+            })
+          this.toggle(I18n.translate('thinkingSwitch'), this.settings.thinking, (): void => {
+            this.settings.setThinking(!this.settings.thinking);
+          })
+          this.toggle(I18n.translate('search'), this.settings.search, (): void => {
+            this.settings.setSearch(!this.settings.search);
+          })
+          Blank()
+        }
+        .width('100%')
+        .padding({ left: Dim.pagePadding, right: Dim.pagePadding, bottom: 4 })
       }
-      .width('100%')
-      .padding({ left: Dim.pagePadding, right: Dim.pagePadding, bottom: 4 })
 
       if (this.editing) {
         // 编辑模式提示条
