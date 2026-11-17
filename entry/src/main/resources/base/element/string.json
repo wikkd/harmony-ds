@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "harmony DS main module"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "harmony DS - DeepSeek native client"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "harmony DS"
+    },
+    {
+      "name": "mic_permission_reason",
+      "value": "Used for voice input to speech recognition. Recordings are only sent to the configured DeepSeek API service."
+    }
+  ]
+}

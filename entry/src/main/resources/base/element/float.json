@@ -1,0 +1,18 @@
+{
+  "float": [
+    { "name": "font_headline6", "value": "30fp" },
+    { "name": "font_headline7", "value": "24fp" },
+    { "name": "font_headline8", "value": "20fp" },
+    { "name": "font_headline9", "value": "18fp" },
+    { "name": "font_subtitle1", "value": "18fp" },
+    { "name": "font_subtitle2", "value": "16fp" },
+    { "name": "font_subtitle3", "value": "14fp" },
+    { "name": "font_button1", "value": "16fp" },
+    { "name": "font_button2", "value": "14fp" },
+    { "name": "font_button3", "value": "12fp" },
+    { "name": "font_body1", "value": "16fp" },
+    { "name": "font_body2", "value": "14fp" },
+    { "name": "font_body3", "value": "12fp" },
+    { "name": "font_caption", "value": "10fp" }
+  ]
+}
