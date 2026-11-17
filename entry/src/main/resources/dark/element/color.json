@@ -11,6 +11,7 @@
     { "name": "search_bg", "value": "#1AFFFFFF" },
     { "name": "code_block_bg", "value": "#2E3033" },
     { "name": "text_primary", "value": "#DBFFFFFF" },
+    { "name": "text_primary_contrary", "value": "#E5E5E5" },
     { "name": "text_secondary", "value": "#99FFFFFF" },
     { "name": "text_tertiary", "value": "#66FFFFFF" },
     { "name": "text_fourth", "value": "#33FFFFFF" },
