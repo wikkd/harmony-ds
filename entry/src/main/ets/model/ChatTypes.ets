@@ -23,6 +23,8 @@ export class FileAttachment {
   @Trace size: number = 0;
   @Trace isImage: boolean = false;
   @Trace mimeType: string = '';
+  /** 沙箱内原件路径（导入的没有原件时为空） */
+  localPath: string = '';
 }
 
 /** 思考块 */

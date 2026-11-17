@@ -4,6 +4,7 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { promptAction } from '@kit.ArkUI';
 import {
   AssistantMessage,
+  FileAttachment,
   Message,
   Session,
   TextPart,
@@ -71,6 +72,29 @@ export struct MessageList {
   userRow(m: UserMessage) {
     Column({ space: 4 }) {
       this.branchSwitcher(m)
+      // 附件 chips
+      if (m.files.length > 0) {
+        Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.End }) {
+          ForEach(m.files, (f: FileAttachment) => {
+            Row({ space: 4 }) {
+              Image(f.isImage ? $r('app.media.ic_public_picture') : $r('app.media.ic_public_file'))
+                .width(14)
+                .height(14)
+                .fillColor($r('app.color.text_primary_contrary'))
+              Text(f.name)
+                .fontSize($r('app.float.font_caption'))
+                .fontColor($r('app.color.text_primary_contrary'))
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .constraintSize({ maxWidth: 140 })
+            }
+            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+            .backgroundColor($r('app.color.brand_pressed'))
+            .borderRadius(Dim.radiusS)
+          }, (f: FileAttachment) => f.id)
+        }
+        .width('100%')
+      }
       Row({ space: 4 }) {
         Blank()
         // 操作：编辑 / 复制

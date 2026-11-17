@@ -20,6 +20,8 @@ import { Logger } from '../../common/Logger';
 import { SettingsStore } from '../../prefs/SettingsStore';
 import { KeyVault } from '../../prefs/KeyVault';
 import { AppContextHolder } from '../../common/AppContextHolder';
+import { AttachmentService } from '../attachments/AttachmentService';
+import { FileAttachment } from '../../model/ChatTypes';
 
 const TAG: string = 'ReplyEngine';
 /** 对齐原项目 store.ts */
@@ -69,7 +71,7 @@ export class ReplyEngine {
   }
 
   /** 发送一条用户消息并流式接收回复 */
-  static async send(sessionId: string, question: string): Promise<void> {
+  static async send(sessionId: string, question: string, files: FileAttachment[] = []): Promise<void> {
     const store = ChatStore.get();
     const session = store.sessionById(sessionId);
     if (session === null || store.streamingSessionId !== null) {
@@ -86,6 +88,7 @@ export class ReplyEngine {
     const visible = store.visible;
     const parentId = visible.length > 0 ? visible[visible.length - 1].id : null;
     const userMsg = store.appendUserMessage(session, question, parentId);
+    userMsg.files = files;
     const reply = store.appendAssistantPlaceholder(session, userMsg.id, settings.thinking, settings.search);
     store.refreshVisible(session);
     store.setStreaming(sessionId);
@@ -103,9 +106,17 @@ export class ReplyEngine {
     const latestReminder = LatestReminder.create();
     reply.latestReminder = latestReminder;
 
+    try {
+      await ReplyEngine.prepareFiles(apiKey, userMsg);
+    } catch (err) {
+      const e = err as ApiError;
+      ReplyEngine.failUpload(sessionId, reply, e);
+      return;
+    }
+
     const body = ReplyEngine.buildRequestBody(
       store.visible, userMsg, null, reply.thinking, reply.search,
-      session.title === '', latestReminder);
+      session.title === '', latestReminder, userMsg.files.length > 0);
 
     const indexes = new Map<number, number>();
     ReplyEngine.blockIndexes.set(sessionId, indexes);
@@ -119,8 +130,37 @@ export class ReplyEngine {
       onDone: () => {
         ReplyEngine.finishWithDone(sessionId);
       },
-    });
+    }, userMsg.files.length > 0);
     ReplyEngine.aborters.set(sessionId, aborter);
+  }
+
+  /** 上传失败收尾：请求未发出，按 upload 错误归类 */
+  private static failUpload(sessionId: string, reply: AssistantMessage, err: ApiError): void {
+    const store = ChatStore.get();
+    ReplyEngine.blockIndexes.delete(sessionId);
+    ReplyEngine.aborters.delete(sessionId);
+    ReplyEngine.pending.delete(sessionId);
+    if (store.streamingSessionId === sessionId) {
+      store.setStreaming(null);
+    }
+    const re = new ReplyError();
+    re.kind = 'upload';
+    re.message = err.message;
+    const session = store.sessionById(sessionId);
+    if (session !== null) {
+      store.refreshVisible(session);
+      ReplyEngine.settle(reply, 'error', Date.now(), re);
+      store.persistMessage(session, reply).catch(() => {});
+    }
+  }
+
+  /** 附件补传：serverId 为空且有本地原件的文件逐个上传 */
+  private static async prepareFiles(apiKey: string, userMsg: UserMessage): Promise<void> {
+    for (const f of userMsg.files) {
+      if (f.serverId === null) {
+        await AttachmentService.upload(apiKey, f);
+      }
+    }
   }
 
   /** 重新生成：在指定用户消息下新建 assistant 兄弟并重发同一问题 */
@@ -152,7 +192,7 @@ export class ReplyEngine {
 
     const body = ReplyEngine.buildRequestBody(
       store.visible, userMsg as UserMessage, null, reply.thinking, reply.search,
-      session.title === '', latestReminder);
+      session.title === '', latestReminder, (userMsg as UserMessage).files.length > 0);
 
     const indexes = new Map<number, number>();
     ReplyEngine.blockIndexes.set(sessionId, indexes);
@@ -166,12 +206,12 @@ export class ReplyEngine {
       onDone: () => {
         ReplyEngine.finishWithDone(sessionId);
       },
-    });
+    }, (userMsg as UserMessage).files.length > 0);
     ReplyEngine.aborters.set(sessionId, aborter);
   }
 
   /** 编辑重发：在原用户消息的父节点下新建用户分支并发送 */
-  static async sendEdited(sessionId: string, originalUserId: string, newText: string): Promise<void> {
+  static async sendEdited(sessionId: string, originalUserId: string, newText: string, files: FileAttachment[] = []): Promise<void> {
     const store = ChatStore.get();
     const session = store.sessionById(sessionId);
     if (session === null || store.streamingSessionId !== null) {
@@ -190,6 +230,7 @@ export class ReplyEngine {
     const settings = SettingsStore.get();
 
     const userMsg = store.appendUserMessage(session, newText, parentId);
+    userMsg.files = files;
     const reply = store.appendAssistantPlaceholder(session, userMsg.id, settings.thinking, settings.search);
     store.refreshVisible(session);
     store.setStreaming(sessionId);
@@ -208,7 +249,7 @@ export class ReplyEngine {
 
     const body = ReplyEngine.buildRequestBody(
       store.visible, userMsg, null, reply.thinking, reply.search,
-      session.title === '', latestReminder);
+      session.title === '', latestReminder, userMsg.files.length > 0);
 
     const indexes = new Map<number, number>();
     ReplyEngine.blockIndexes.set(sessionId, indexes);
@@ -222,7 +263,7 @@ export class ReplyEngine {
       onDone: () => {
         ReplyEngine.finishWithDone(sessionId);
       },
-    });
+    }, userMsg.files.length > 0);
     ReplyEngine.aborters.set(sessionId, aborter);
   }
 
@@ -234,7 +275,8 @@ export class ReplyEngine {
     thinking: boolean,
     search: boolean,
     needTitle: boolean,
-    latestReminder: string
+    latestReminder: string,
+    withFiles: boolean
   ): string {
     const messages: Array<Object> = [];
     let previousReminder = '';
@@ -256,7 +298,7 @@ export class ReplyEngine {
       messages.push(am);
     }
     appendReminder(latestReminder);
-    const q: Record<string, Object> = { 'role': 'user', 'content': question.content };
+    const q: Record<string, Object> = { 'role': 'user', 'content': ReplyEngine.userParam(question) };
     messages.push(q);
     if (prefix !== null && prefix.prefix) {
       const text = ReplyEngine.assistantTextParam(prefix);
@@ -329,6 +371,30 @@ export class ReplyEngine {
       }
     }
     return out;
+  }
+
+  /** 用户消息参数：有文件时先文件块后文本块 */
+  private static userParam(m: UserMessage): Object {
+    const blocks: Array<Object> = [];
+    for (const f of m.files) {
+      if (f.serverId === null) {
+        continue;
+      }
+      const source: Record<string, Object> = { 'type': 'file', 'file_id': f.serverId };
+      const b: Record<string, Object> = {
+        'type': f.isImage ? 'image' : 'document',
+        'source': source,
+      };
+      blocks.push(b);
+    }
+    if (m.content !== '') {
+      const tb: Record<string, Object> = { 'type': 'text', 'text': m.content };
+      blocks.push(tb);
+    }
+    if (blocks.length === 0) {
+      return '';
+    }
+    return blocks;
   }
 
   /** assistant 历史参数：相邻文本拼接（citations 去除），M2 只回传文本 */

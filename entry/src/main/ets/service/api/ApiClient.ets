@@ -64,8 +64,9 @@ export class ApiClient {
   /**
    * POST /anthropic/v1/messages（stream: true）。
    * 收到 message_stop 时 onDone；流中出现错误帧或提前断开时 onError。
+   * withFiles: 请求含 file_id 引用时必须带 anthropic-beta 头。
    */
-  static streamMessage(apiKey: string, bodyJson: string, callbacks: StreamCallbacks): StreamAborter {
+  static streamMessage(apiKey: string, bodyJson: string, callbacks: StreamCallbacks, withFiles: boolean = false): StreamAborter {
     const aborter = new StreamAborter();
     const req = http.createHttp();
     aborter.internalSet(req);
@@ -222,6 +223,9 @@ export class ApiClient {
           connectTimeout: CONNECT_TIMEOUT_MS,
           readTimeout: READ_TIMEOUT_MS,
         };
+        if (withFiles) {
+          (options.header as Record<string, string>)['anthropic-beta'] = FILES_BETA;
+        }
         const code = await req.requestInStream(ApiClient.anthropicUrl('/messages'), options);
         statusCode = code;
         if (code >= 200 && code < 300) {

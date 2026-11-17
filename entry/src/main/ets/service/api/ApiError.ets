@@ -5,10 +5,10 @@
 export type ApiErrorKind = 'http' | 'stream' | 'network' | 'interrupted' | 'protocol';
 
 export class ApiError extends Error {
-  readonly kind: ApiErrorKind;
+  readonly kind: ApiErrorKind | 'upload';
   readonly status?: number;
 
-  constructor(kind: ApiErrorKind, message: string, status?: number) {
+  constructor(kind: ApiErrorKind | 'upload', message: string, status?: number) {
     super(message);
     this.name = 'ApiError';
     this.kind = kind;

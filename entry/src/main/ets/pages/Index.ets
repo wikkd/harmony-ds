@@ -13,7 +13,8 @@ import { MessageList } from '../components/messages/MessageList';
 import { ChatInput } from '../components/chatinput/ChatInput';
 import { Sider } from '../components/sider/Sider';
 import { SettingsPage } from '../components/settings/SettingsPage';
-import { UserMessage } from '../model/ChatTypes';
+import { UserMessage, FileAttachment } from '../model/ChatTypes';
+import { AttachmentService } from '../service/attachments/AttachmentService';
 import { Logger } from '../common/Logger';
 
 /**
@@ -166,6 +167,7 @@ struct ChatView {
   store: ChatStore = ChatStore.get();
   @Local draft: string = '';
   @Local editingId: string = '';
+  @Local draftFiles: FileAttachment[] = [];
 
   build() {
     Column() {
@@ -208,6 +210,7 @@ struct ChatView {
         text: this.draft,
         streaming: this.store.streamingSessionId !== null,
         editing: this.editingId !== '',
+        files: this.draftFiles,
         onTextChange: (v: string) => {
           this.draft = v;
         },
@@ -221,6 +224,19 @@ struct ChatView {
         onStop: () => {
           ReplyEngine.stop(this.store.currentSessionId);
         },
+        onPickFiles: () => {
+          AttachmentService.pick().then((picked: FileAttachment[]) => {
+            for (const f of picked) {
+              this.draftFiles.push(f);
+            }
+          }).catch(() => {});
+        },
+        onRemoveFile: (f: FileAttachment) => {
+          const idx = this.draftFiles.indexOf(f);
+          if (idx >= 0) {
+            this.draftFiles.splice(idx, 1);
+          }
+        },
       })
     }
     .constraintSize({ maxWidth: Dim.contentMaxWidth + 32 })
@@ -230,14 +246,16 @@ struct ChatView {
   }
 
   private dispatchSend(text: string): void {
+    const files = this.draftFiles;
+    this.draftFiles = [];
     if (this.editingId !== '') {
       const id = this.editingId;
       this.editingId = '';
       this.draft = '';
-      ReplyEngine.sendEdited(this.store.currentSessionId, id, text);
+      ReplyEngine.sendEdited(this.store.currentSessionId, id, text, files);
     } else {
       this.draft = '';
-      ReplyEngine.send(this.store.currentSessionId, text);
+      ReplyEngine.send(this.store.currentSessionId, text, files);
     }
   }
 }

@@ -4,6 +4,7 @@ import { KeyVault } from '../../prefs/KeyVault';
 import { AppContextHolder } from '../../common/AppContextHolder';
 import { SettingsStore } from '../../prefs/SettingsStore';
 import { VoiceButton } from './VoiceButton';
+import { FileAttachment } from '../../model/ChatTypes';
 import { Logger } from '../../common/Logger';
 
 /** 底部输入区：圆角容器 + TextArea + 发送/停止按钮（鸿蒙设计语言） */
@@ -18,6 +19,35 @@ export struct ChatInput {
   @Param onStop: () => void = () => {};
   settings: SettingsStore = SettingsStore.get();
   @Local voiceActive: boolean = false;
+  @Param files: FileAttachment[] = [];
+  @Param onPickFiles: () => void = () => {};
+  @Param onRemoveFile: (f: FileAttachment) => void = () => {};
+
+  @Builder
+  attachChip(f: FileAttachment) {
+    Row({ space: 4 }) {
+      Image(f.isImage ? $r('app.media.ic_public_picture') : $r('app.media.ic_public_file'))
+        .width(14)
+        .height(14)
+        .fillColor($r('app.color.text_secondary'))
+      Text(f.name)
+        .fontSize($r('app.float.font_caption'))
+        .fontColor($r('app.color.text_primary'))
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .constraintSize({ maxWidth: 120 })
+      Image($r('app.media.ic_public_close'))
+        .width(12)
+        .height(12)
+        .fillColor($r('app.color.text_tertiary'))
+        .onClick(() => {
+          this.onRemoveFile(f);
+        })
+    }
+    .padding({ left: 8, right: 6, top: 4, bottom: 4 })
+    .backgroundColor($r('app.color.component_normal'))
+    .borderRadius(Dim.radiusS)
+  }
 
   @Builder
   toggle(label: string, on: boolean, onTap: () => void) {
@@ -48,7 +78,7 @@ export struct ChatInput {
           },
         })
       } else {
-        // 工具行：语音 / 深度思考 / 智能搜索
+        // 工具行：语音 / 深度思考 / 智能搜索 / 附件
         Row({ space: 8 }) {
           Image($r('app.media.ic_public_voice'))
             .width(24)
@@ -64,7 +94,26 @@ export struct ChatInput {
           this.toggle(I18n.translate('search'), this.settings.search, (): void => {
             this.settings.setSearch(!this.settings.search);
           })
+          Image($r('app.media.ic_public_add'))
+            .width(24)
+            .height(24)
+            .padding(1)
+            .fillColor($r('app.color.text_secondary'))
+            .onClick(() => {
+              this.onPickFiles();
+            })
           Blank()
+        }
+        .width('100%')
+        .padding({ left: Dim.pagePadding, right: Dim.pagePadding, bottom: 4 })
+      }
+
+      // 草稿附件 chips
+      if (this.files.length > 0) {
+        Flex({ wrap: FlexWrap.Wrap }) {
+          ForEach(this.files, (f: FileAttachment) => {
+            this.attachChip(f)
+          }, (f: FileAttachment) => f.id)
         }
         .width('100%')
         .padding({ left: Dim.pagePadding, right: Dim.pagePadding, bottom: 4 })
