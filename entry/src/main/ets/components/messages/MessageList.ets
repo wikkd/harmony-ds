@@ -14,6 +14,9 @@ import {
 } from '../../model/ChatTypes';
 import { ChatStore } from '../../service/chat/ChatStore';
 import { ReplyEngine } from '../../service/chat/ReplyEngine';
+import { MarkdownView } from '../markdown/MarkdownView';
+import { AppContextHolder } from '../../common/AppContextHolder';
+import { common, Context, Want } from '@kit.AbilityKit';
 import { Logger } from '../../common/Logger';
 
 /**
@@ -239,14 +242,55 @@ struct AssistantBody {
 
       ForEach(this.textBlocks(), (t: TextPart) => {
         Column() {
-          Text(t.text)
-            .fontSize($r('app.float.font_body1'))
-            .lineHeight(26)
-            .fontColor($r('app.color.text_primary'))
-            .width('100%')
+          // 流式期间用纯文本保性能；结束后 Markdown 富渲染
+          if (this.message.status === 'streaming') {
+            Text(t.text)
+              .fontSize($r('app.float.font_body1'))
+              .lineHeight(26)
+              .fontColor($r('app.color.text_primary'))
+              .width('100%')
+          } else {
+            MarkdownView({ source: t.text })
+          }
         }
         .width('100%')
       }, (t: TextPart) => `tx_${t.text.length}_${t.citations.length}`)
+
+      // 引用来源卡片（正文块 citations 汇总去重）
+      ForEach(this.citationCards(), (card: CitationCard, ci: number) => {
+        Row({ space: 8 }) {
+          Text(`${ci + 1}`)
+            .fontSize($r('app.float.font_caption'))
+            .fontColor($r('app.color.text_primary_contrary'))
+            .width(18)
+            .height(18)
+            .borderRadius(9)
+            .backgroundColor($r('app.color.brand'))
+            .textAlign(TextAlign.Center)
+          Column({ space: 2 }) {
+            Text(card.title)
+              .fontSize($r('app.float.font_body3'))
+              .fontColor($r('app.color.text_primary'))
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .width('100%')
+            Text(card.url)
+              .fontSize($r('app.float.font_caption'))
+              .fontColor($r('app.color.text_tertiary'))
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .width('100%')
+          }
+          .layoutWeight(1)
+        }
+        .width('100%')
+        .padding(8)
+        .backgroundColor($r('app.color.code_block_bg'))
+        .borderRadius(Dim.radiusS)
+        .onClick(() => {
+          openUrl(card.url);
+        })
+      }, (card: CitationCard, ci: number) => `cite${ci}`)
 
       if (this.message.status === 'streaming' && this.textBlocks().length === 0
         && this.thinkingBlocks().length === 0) {
@@ -318,4 +362,54 @@ struct AssistantBody {
     }
     return I18n.translate('apiKeyVerificationFailed', { 'message': err.message });
   }
+
+  /** 汇总正文引用为去重来源卡 */
+  private citationCards(): CitationCard[] {
+    const out: CitationCard[] = [];
+    const seen: Set<string> = new Set();
+    for (const b of this.message.blocks) {
+      if (b.type !== 'text') {
+        continue;
+      }
+      for (const c of b.textPart.citations) {
+        if (seen.has(c.url)) {
+          continue;
+        }
+        seen.add(c.url);
+        const card = new CitationCard();
+        card.url = c.url;
+        card.title = c.title === null || c.title === '' ? c.url : c.title;
+        out.push(card);
+        if (out.length >= 8) {
+          return out;
+        }
+      }
+    }
+    return out;
+  }
+}
+
+class CitationCard {
+  url: string = '';
+  title: string = '';
+}
+
+function openUrl(url: string): void {
+  try {
+    const ability = AppContextHolder.get();
+    // 开放链接到浏览器
+    openLink(ability, url);
+  } catch (err) {
+    Logger.warn('MessageList', `open url failed: ${JSON.stringify(err)}`);
+  }
+}
+
+function openLink(context: Context, url: string): void {
+  const uiAbility = context as common.UIAbilityContext;
+  const want: Want = {
+    action: 'ohos.want.action.viewData',
+    entities: ['entity.system.browsable'],
+    uri: url,
+  };
+  uiAbility.startAbility(want).catch(() => {});
 }
