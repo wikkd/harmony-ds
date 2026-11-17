@@ -11,11 +11,13 @@ import { Dim } from '../common/DesignTokens';
 import { PrivacyPolicyPage } from '../components/privacy/PrivacyPolicyPage';
 import { MessageList } from '../components/messages/MessageList';
 import { ChatInput } from '../components/chatinput/ChatInput';
+import { Sider } from '../components/sider/Sider';
+import { UserMessage } from '../model/ChatTypes';
 import { Logger } from '../common/Logger';
 
 /**
- * M2：Navigation 骨架 + 单会话流式对话闭环。
- * 侧栏会话列表 M3 接入、完整设置面板 M5 替换占位。
+ * M3：Navigation + 侧栏多会话（抽屉/常驻）+ 分支消息链 + 编辑重发。
+ * 完整设置面板 M5 替换占位。
  */
 @Entry
 @Component
@@ -46,65 +48,127 @@ struct Index {
 @Component
 struct HomePage {
   pathStack: NavPathStack = new NavPathStack();
+  @State siderOpen: boolean = false;
+  @StorageLink('bpWindowWidth') winWidth: number = 0;
+
+  private isWide(): boolean {
+    return this.winWidth >= Dim.siderPermanentBp;
+  }
 
   build() {
-    Column() {
-      // 标题栏：鸿蒙小标题样式
-      Row() {
-        Row({ space: 8 }) {
-          Image($r('app.media.startIcon'))
-            .width(28)
-            .height(28)
-            .borderRadius(Dim.radiusS)
-          Text(I18n.translate('appName'))
-            .fontSize($r('app.float.font_headline8'))
-            .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_primary'))
-        }
-        .alignItems(VerticalAlign.Center)
+    SideBarContainer(SideBarContainerType.Embed) {
+      // 侧栏
+      Column() {
+        Sider({
+          onSessionSelected: () => {
+            if (!this.isWide()) {
+              this.siderOpen = false;
+            }
+          },
+        })
+      }
+      .width(Dim.siderWidth)
+      .backgroundColor($r('app.color.sub_bg'))
 
-        Blank()
-
-        Row() {
-          Image($r('app.media.ic_public_settings'))
-            .width(24)
-            .height(24)
-            .fillColor($r('app.color.titlebar_icon'))
-            .padding(2)
-            .onClick(() => {
-              this.pathStack.pushPathByName('settings', null);
-            })
-        }
-        .width(40)
-        .height(40)
-        .borderRadius(20)
-        .justifyContent(FlexAlign.Center)
+      // 主区
+      Column() {
+        this.titleBar()
+        Divider()
+          .color($r('app.color.list_separator'))
+          .strokeWidth(Dim.separator)
+        ChatView()
       }
       .width('100%')
-      .height(56)
-      .padding({ left: Dim.pagePadding, right: 8 })
+      .height('100%')
+      .backgroundColor($r('app.color.app_bg'))
+    }
+    .showSideBar(this.isWide() || this.siderOpen)
+    .autoHide(false)
+    .sideBarWidth(Dim.siderWidth)
+    .minContentWidth(320)
+    .onChange((open: boolean) => {
+      if (!open && !this.isWide()) {
+        this.siderOpen = false;
+      }
+    })
+  }
+
+  @Builder
+  titleBar() {
+    Row() {
+      Row({ space: 8 }) {
+        Image($r('app.media.startIcon'))
+          .width(28)
+          .height(28)
+          .borderRadius(Dim.radiusS)
+          .onClick(() => {
+            if (!this.isWide()) {
+              this.siderOpen = !this.siderOpen;
+            }
+          })
+        Text(I18n.translate('appName'))
+          .fontSize($r('app.float.font_headline8'))
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.text_primary'))
+          .onClick(() => {
+            if (!this.isWide()) {
+              this.siderOpen = !this.siderOpen;
+            }
+          })
+      }
       .alignItems(VerticalAlign.Center)
 
-      Divider()
-        .color($r('app.color.list_separator'))
-        .strokeWidth(Dim.separator)
+      Blank()
 
-      ChatView()
+      Row({ space: 4 }) {
+        // 窄屏抽屉按钮
+        Image($r('app.media.ic_public_drawer_filled'))
+          .width(24)
+          .height(24)
+          .fillColor($r('app.color.titlebar_icon'))
+          .padding(2)
+          .visibility(this.isWide() ? Visibility.None : Visibility.Visible)
+          .onClick(() => {
+            this.siderOpen = !this.siderOpen;
+          })
+        // 新对话
+        Image($r('app.media.ic_public_add'))
+          .width(24)
+          .height(24)
+          .fillColor($r('app.color.titlebar_icon'))
+          .padding(2)
+          .onClick(() => {
+            ChatStore.get().newSession();
+          })
+        // 设置
+        Image($r('app.media.ic_public_settings'))
+          .width(24)
+          .height(24)
+          .fillColor($r('app.color.titlebar_icon'))
+          .padding(2)
+          .onClick(() => {
+            this.pathStack.pushPathByName('settings', null);
+          })
+      }
+      .alignItems(VerticalAlign.Center)
     }
     .width('100%')
-    .height('100%')
-    .backgroundColor($r('app.color.app_bg'))
+    .height(56)
+    .padding({ left: Dim.pagePadding + 32, right: 8 })
+    .alignItems(VerticalAlign.Center)
   }
 }
 
-/** 会话主视图（V2）：欢迎态 / 消息列表 + 输入区 */
+/** 会话主视图（V2）：欢迎态 / 可见链消息列表 + 受控输入 */
 @ComponentV2
 struct ChatView {
   store: ChatStore = ChatStore.get();
+  @Local draft: string = '';
+  @Local editingId: string = '';
 
   build() {
     Column() {
-      if (this.store.current().messages.length === 0) {
+      if (this.store.visible.length === 0) {
         Column() {
           Blank()
           Text(I18n.translate('welcomeMessageChat250808'))
@@ -123,7 +187,15 @@ struct ChatView {
         .width('100%')
         .layoutWeight(1)
       } else {
-        MessageList({ session: this.store.current() })
+        MessageList({
+          session: this.store.current(),
+          visible: this.store.visible,
+          editingId: this.editingId,
+          onEdit: (m: UserMessage) => {
+            this.editingId = m.id;
+            this.draft = m.content;
+          },
+        })
       }
 
       Text(I18n.translate('contentCaveat'))
@@ -132,9 +204,18 @@ struct ChatView {
         .margin({ bottom: 4 })
 
       ChatInput({
+        text: this.draft,
         streaming: this.store.streamingSessionId !== null,
+        editing: this.editingId !== '',
+        onTextChange: (v: string) => {
+          this.draft = v;
+        },
         onSend: (text: string) => {
-          ReplyEngine.send(this.store.currentSessionId, text);
+          this.dispatchSend(text);
+        },
+        onCancelEdit: () => {
+          this.editingId = '';
+          this.draft = '';
         },
         onStop: () => {
           ReplyEngine.stop(this.store.currentSessionId);
@@ -145,6 +226,18 @@ struct ChatView {
     .width('100%')
     .height('100%')
     .alignSelf(ItemAlign.Center)
+  }
+
+  private dispatchSend(text: string): void {
+    if (this.editingId !== '') {
+      const id = this.editingId;
+      this.editingId = '';
+      this.draft = '';
+      ReplyEngine.sendEdited(this.store.currentSessionId, id, text);
+    } else {
+      this.draft = '';
+      ReplyEngine.send(this.store.currentSessionId, text);
+    }
   }
 }
 

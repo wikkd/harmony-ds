@@ -7,13 +7,33 @@ import { Logger } from '../../common/Logger';
 /** 底部输入区：圆角容器 + TextArea + 发送/停止按钮（鸿蒙设计语言） */
 @ComponentV2
 export struct ChatInput {
-  @Local text: string = '';
+  @Param text: string = '';
   @Param streaming: boolean = false;
+  @Param editing: boolean = false;
+  @Param onTextChange: (v: string) => void = () => {};
   @Param onSend: (text: string) => void = () => {};
+  @Param onCancelEdit: () => void = () => {};
   @Param onStop: () => void = () => {};
 
   build() {
     Column() {
+      if (this.editing) {
+        // 编辑模式提示条
+        Row({ space: 8 }) {
+          Text(I18n.translate('editMessage'))
+            .fontSize($r('app.float.font_body3'))
+            .fontColor($r('app.color.brand_activated'))
+            .layoutWeight(1)
+          Image($r('app.media.ic_public_close'))
+            .width(16)
+            .height(16)
+            .fillColor($r('app.color.text_tertiary'))
+            .onClick(() => {
+              this.onCancelEdit();
+            })
+        }
+        .padding({ left: 16, right: 16, top: 6 })
+      }
       Row({ space: 8 }) {
         TextArea({
           text: this.text,
@@ -28,7 +48,7 @@ export struct ChatInput {
           .padding({ left: 4, right: 4 })
           .layoutWeight(1)
           .onChange((value: string) => {
-            this.text = value;
+            this.onTextChange(value);
           })
 
         if (this.streaming) {
@@ -84,7 +104,6 @@ export struct ChatInput {
         return;
       }
       this.onSend(value);
-      this.text = '';
     }).catch(() => {});
   }
 }

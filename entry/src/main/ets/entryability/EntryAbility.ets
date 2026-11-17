@@ -3,6 +3,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window, display } from '@kit.ArkUI';
 import { SettingsStore } from '../prefs/SettingsStore';
 import { KeyVault } from '../prefs/KeyVault';
+import { ChatStore } from '../service/chat/ChatStore';
 import { ThemeHelper } from '../common/ThemeHelper';
 import { BreakpointUtil } from '../common/Breakpoint';
 import { AppContextHolder } from '../common/AppContextHolder';
@@ -15,6 +16,7 @@ export default class EntryAbility extends UIAbility {
     hilog.info(DOMAIN, TAG, 'Ability onCreate');
     AppContextHolder.set(this.context);
     SettingsStore.get().init(this.context);
+    ChatStore.get().restore().catch(() => {});
     KeyVault.exists(this.context).then((has: boolean) => {
       AppStorage.setOrCreate<boolean>('hasApiKey', has);
     }).catch(() => {

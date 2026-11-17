@@ -59,8 +59,10 @@ export class ReplyEngine {
       const session = store.sessionById(sessionId);
       const reply = session !== null ? store.findMessage(session, pending.assistantId) : null;
       if (session !== null && reply !== null && isAssistant(reply)) {
-        ReplyEngine.settle(reply as AssistantMessage, 'stopped', Date.now(), null);
-        store.touchSession(session);
+        const a = reply as AssistantMessage;
+        ReplyEngine.settle(a, 'stopped', Date.now(), null);
+        store.refreshVisible(session);
+        store.persistMessage(session, a).catch(() => {});
       }
       ReplyEngine.pending.delete(sessionId);
     }
@@ -80,16 +82,132 @@ export class ReplyEngine {
     }
     const settings = SettingsStore.get();
 
-    const userMsg = store.appendUserMessage(session, question);
-    const reply = store.appendAssistantPlaceholder(session, settings.thinking, settings.search);
+    // 挂到当前可见链尾部
+    const visible = store.visible;
+    const parentId = visible.length > 0 ? visible[visible.length - 1].id : null;
+    const userMsg = store.appendUserMessage(session, question, parentId);
+    const reply = store.appendAssistantPlaceholder(session, userMsg.id, settings.thinking, settings.search);
+    store.refreshVisible(session);
     store.setStreaming(sessionId);
     ReplyEngine.pending.set(sessionId, { sessionId, assistantId: reply.id, question });
+    // 持久化提问与占位回复
+    await store.persistMessage(session, userMsg);
+    await store.persistMessage(session, reply);
+    if (userMsg.parentId !== null) {
+      const parent = store.findMessage(session, userMsg.parentId);
+      if (parent !== null) {
+        await store.persistMessage(session, parent);
+      }
+    }
 
     const latestReminder = LatestReminder.create();
     reply.latestReminder = latestReminder;
 
     const body = ReplyEngine.buildRequestBody(
-      session.messages, userMsg, null, apiKey, reply.thinking, reply.search,
+      store.visible, userMsg, null, reply.thinking, reply.search,
+      session.title === '', latestReminder);
+
+    const indexes = new Map<number, number>();
+    ReplyEngine.blockIndexes.set(sessionId, indexes);
+    const aborter = ApiClient.streamMessage(apiKey, body, {
+      onEvent: (event: StreamEvent) => {
+        ReplyEngine.handleEvent(sessionId, event);
+      },
+      onError: (err: ApiError) => {
+        ReplyEngine.finishWithError(sessionId, err);
+      },
+      onDone: () => {
+        ReplyEngine.finishWithDone(sessionId);
+      },
+    });
+    ReplyEngine.aborters.set(sessionId, aborter);
+  }
+
+  /** 重新生成：在指定用户消息下新建 assistant 兄弟并重发同一问题 */
+  static async regenerate(sessionId: string, userMsgId: string, question: string): Promise<void> {
+    const store = ChatStore.get();
+    const session = store.sessionById(sessionId);
+    if (session === null || store.streamingSessionId !== null) {
+      return;
+    }
+    const apiKey = await KeyVault.load(AppContextHolder.get());
+    if (apiKey === null || apiKey === '') {
+      Logger.warn(TAG, 'no api key');
+      return;
+    }
+    const settings = SettingsStore.get();
+    const userMsg = store.findMessage(session, userMsgId);
+    if (userMsg === null || !isUser(userMsg)) {
+      return;
+    }
+    const reply = store.appendAssistantPlaceholder(session, userMsgId, settings.thinking, settings.search);
+    store.refreshVisible(session);
+    store.setStreaming(sessionId);
+    ReplyEngine.pending.set(sessionId, { sessionId, assistantId: reply.id, question });
+    await store.persistMessage(session, reply);
+    await store.persistMessage(session, userMsg as UserMessage);
+
+    const latestReminder = LatestReminder.create();
+    reply.latestReminder = latestReminder;
+
+    const body = ReplyEngine.buildRequestBody(
+      store.visible, userMsg as UserMessage, null, reply.thinking, reply.search,
+      session.title === '', latestReminder);
+
+    const indexes = new Map<number, number>();
+    ReplyEngine.blockIndexes.set(sessionId, indexes);
+    const aborter = ApiClient.streamMessage(apiKey, body, {
+      onEvent: (event: StreamEvent) => {
+        ReplyEngine.handleEvent(sessionId, event);
+      },
+      onError: (err: ApiError) => {
+        ReplyEngine.finishWithError(sessionId, err);
+      },
+      onDone: () => {
+        ReplyEngine.finishWithDone(sessionId);
+      },
+    });
+    ReplyEngine.aborters.set(sessionId, aborter);
+  }
+
+  /** 编辑重发：在原用户消息的父节点下新建用户分支并发送 */
+  static async sendEdited(sessionId: string, originalUserId: string, newText: string): Promise<void> {
+    const store = ChatStore.get();
+    const session = store.sessionById(sessionId);
+    if (session === null || store.streamingSessionId !== null) {
+      return;
+    }
+    const apiKey = await KeyVault.load(AppContextHolder.get());
+    if (apiKey === null || apiKey === '') {
+      Logger.warn(TAG, 'no api key');
+      return;
+    }
+    const original = store.findMessage(session, originalUserId);
+    if (original === null || !isUser(original)) {
+      return;
+    }
+    const parentId = (original as UserMessage).parentId;
+    const settings = SettingsStore.get();
+
+    const userMsg = store.appendUserMessage(session, newText, parentId);
+    const reply = store.appendAssistantPlaceholder(session, userMsg.id, settings.thinking, settings.search);
+    store.refreshVisible(session);
+    store.setStreaming(sessionId);
+    ReplyEngine.pending.set(sessionId, { sessionId, assistantId: reply.id, question: newText });
+    await store.persistMessage(session, userMsg);
+    await store.persistMessage(session, reply);
+    if (parentId !== null) {
+      const parent = store.findMessage(session, parentId);
+      if (parent !== null) {
+        await store.persistMessage(session, parent);
+      }
+    }
+
+    const latestReminder = LatestReminder.create();
+    reply.latestReminder = latestReminder;
+
+    const body = ReplyEngine.buildRequestBody(
+      store.visible, userMsg, null, reply.thinking, reply.search,
       session.title === '', latestReminder);
 
     const indexes = new Map<number, number>();
@@ -113,7 +231,6 @@ export class ReplyEngine {
     history: Message[],
     question: UserMessage,
     prefix: AssistantMessage | null,
-    apiKey: string,
     thinking: boolean,
     search: boolean,
     needTitle: boolean,
@@ -374,7 +491,8 @@ export class ReplyEngine {
     if (found !== null && isAssistant(found)) {
       const reply = found as AssistantMessage;
       ReplyEngine.settle(reply, 'done', Date.now(), null);
-      store.touchSession(session);
+      store.refreshVisible(session);
+      store.persistMessage(session, reply).catch(() => {});
     }
   }
   private static finishWithError(sessionId: string, err: ApiError): void {
@@ -399,7 +517,8 @@ export class ReplyEngine {
       re.status = err.status;
       reply.error = re;
       ReplyEngine.settle(reply, 'error', Date.now(), re);
-      store.touchSession(session);
+      store.refreshVisible(session);
+      store.persistMessage(session, reply).catch(() => {});
     }
   }
 
