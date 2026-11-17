@@ -2,6 +2,7 @@ import { I18n } from '../../common/I18n';
 import { Dim } from '../../common/DesignTokens';
 import { KeyVault } from '../../prefs/KeyVault';
 import { AppContextHolder } from '../../common/AppContextHolder';
+import { SettingsStore } from '../../prefs/SettingsStore';
 import { Logger } from '../../common/Logger';
 
 /** 底部输入区：圆角容器 + TextArea + 发送/停止按钮（鸿蒙设计语言） */
@@ -14,9 +15,38 @@ export struct ChatInput {
   @Param onSend: (text: string) => void = () => {};
   @Param onCancelEdit: () => void = () => {};
   @Param onStop: () => void = () => {};
+  settings: SettingsStore = SettingsStore.get();
+
+  @Builder
+  toggle(label: string, on: boolean, onTap: () => void) {
+    Row({ space: 4 }) {
+      Text(label)
+        .fontSize($r('app.float.font_body3'))
+        .fontColor(on ? $r('app.color.brand_activated') : $r('app.color.text_tertiary'))
+    }
+    .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+    .borderRadius(14)
+    .backgroundColor(on ? $r('app.color.thinking_bg') : $r('app.color.component_normal'))
+    .onClick(() => {
+      onTap();
+    })
+  }
 
   build() {
     Column() {
+      // 工具行：深度思考 / 智能搜索
+      Row({ space: 8 }) {
+        this.toggle(I18n.translate('thinkingSwitch'), this.settings.thinking, (): void => {
+          this.settings.setThinking(!this.settings.thinking);
+        })
+        this.toggle(I18n.translate('search'), this.settings.search, (): void => {
+          this.settings.setSearch(!this.settings.search);
+        })
+        Blank()
+      }
+      .width('100%')
+      .padding({ left: Dim.pagePadding, right: Dim.pagePadding, bottom: 4 })
+
       if (this.editing) {
         // 编辑模式提示条
         Row({ space: 8 }) {
