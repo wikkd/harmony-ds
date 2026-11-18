@@ -1,5 +1,6 @@
 import { Fonts } from '../common/Fonts';
 import { KeyboardAvoidMode } from '@ohos.arkui.UIContext';
+import { common } from '@kit.AbilityKit';
 import { I18n } from '../common/I18n';
 import { SettingsStore } from '../prefs/SettingsStore';
 import { ThemeHelper } from '../common/ThemeHelper';
@@ -40,6 +41,35 @@ struct Index {
     // 键盘避让改压缩模式：默认 OFFSET 整窗上移会把标题栏顶出屏幕；
     // RESIZE 压缩窗口高度，标题栏/欢迎区保持原位，输入面板整体浮到键盘上方
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
+    // 首启隐私合规：未同意前强制弹窗，拒绝则退出应用（上架审核要求）
+    if (!SettingsStore.get().privacyAccepted) {
+      this.showPrivacyConsent();
+    }
+  }
+
+  /** 首启隐私/协议同意弹窗：不可点外关闭，拒绝即退出，下次启动再问 */
+  private showPrivacyConsent(): void {
+    this.getUIContext().showAlertDialog({
+      title: I18n.translate('privacyConsentTitle'),
+      message: I18n.translate('privacyConsentMessage'),
+      alignment: DialogAlignment.Center,
+      autoCancel: false,
+      secondaryButton: {
+        value: I18n.translate('privacyConsentDecline'),
+        fontColor: $r('app.color.text_secondary'),
+        action: (): void => {
+          // 拒绝即退出：不写入同意标记，下次启动再次询问
+          (this.getUIContext().getHostContext() as common.UIAbilityContext).terminateSelf().catch(() => {});
+        },
+      },
+      primaryButton: {
+        value: I18n.translate('privacyConsentAgree'),
+        fontColor: $r('app.color.brand_activated'),
+        action: (): void => {
+          SettingsStore.get().setPrivacyAccepted(true);
+        },
+      },
+    });
   }
 
   /** 窄屏抽屉展开时，返回键/返回手势先收起抽屉 */

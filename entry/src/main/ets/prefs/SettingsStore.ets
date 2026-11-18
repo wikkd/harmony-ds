@@ -16,6 +16,7 @@ const KEY_LOCATION: string = 'chat-demo:location';
 const KEY_THEME: string = 'chat-demo:theme-preference';
 const KEY_TTS_VOICE: string = 'chat-demo:tts-voice';
 const KEY_TTS_ENABLED: string = 'chat-demo:tts-enabled';
+const KEY_PRIVACY_ACCEPTED: string = 'chat-demo:privacy-accepted';
 const KEY_THINKING: string = 'chat-demo:thinking';
 const KEY_MODEL: string = 'chat-demo:model';
 const KEY_PERSONALIZATION: string = 'chat-demo:personalization';
@@ -51,6 +52,8 @@ export class SettingsStore {
   @Trace ttsVoice: TtsVoice = 'stella';
   /** 朗读总开关：关闭后消息不出现朗读按钮 */
   @Trace ttsEnabled: boolean = true;
+  /** 首启隐私政策/用户协议是否已同意（首次打开弹窗用） */
+  @Trace privacyAccepted: boolean = false;
   @Trace thinking: boolean = false;
   /** 思考强度，深度思考开启时随请求发送 output_config.effort */
   @Trace thinkingEffort: ThinkingEffort = 'high';
@@ -103,6 +106,7 @@ export class SettingsStore {
       this.themePreference = (this.store.getSync(KEY_THEME, 'system') as ThemePreference);
       this.ttsVoice = (this.store.getSync(KEY_TTS_VOICE, 'stella') as TtsVoice) === 'tide' ? 'tide' : 'stella';
       this.ttsEnabled = this.store.getSync(KEY_TTS_ENABLED, true) as boolean;
+      this.privacyAccepted = this.store.getSync(KEY_PRIVACY_ACCEPTED, false) as boolean;
       this.thinking = this.store.getSync(KEY_THINKING, false) as boolean;
       const savedEffort = this.store.getSync(KEY_THINKING_EFFORT, 'high') as string;
       this.thinkingEffort = (savedEffort === 'low' || savedEffort === 'max') ? savedEffort : 'high';
@@ -180,6 +184,11 @@ export class SettingsStore {
   setTtsEnabled(on: boolean): void {
     this.ttsEnabled = on;
     this.put(KEY_TTS_ENABLED, on);
+  }
+
+  setPrivacyAccepted(accepted: boolean): void {
+    this.privacyAccepted = accepted;
+    this.put(KEY_PRIVACY_ACCEPTED, accepted);
   }
 
   setThinking(on: boolean): void {
