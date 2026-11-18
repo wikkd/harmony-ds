@@ -525,6 +525,14 @@ struct ChatView {
         .showToast({ message: I18n.translate('compactEmpty'), duration: 2000 });
       return;
     }
+    // 低上下文压缩无意义：摘要丢细节还白耗一次请求，占用达到阈值才允许
+    const minTokens = ModelInfo.CONTEXT_LIMIT * ModelInfo.COMPACT_MIN_RATIO;
+    if (this.stat.used < minTokens) {
+      const percent = `${Math.round(ModelInfo.COMPACT_MIN_RATIO * 100)}%`;
+      this.getUIContext().getPromptAction()
+        .showToast({ message: I18n.translate('compactLowContext', { 'percent': percent }), duration: 2000 });
+      return;
+    }
     this.getUIContext().getPromptAction()
       .showToast({ message: I18n.translate('compactRunning'), duration: 3000 });
     ReplyEngine.compact(this.store.currentSessionId).then((r: string) => {

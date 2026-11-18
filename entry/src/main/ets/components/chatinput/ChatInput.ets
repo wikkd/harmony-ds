@@ -307,7 +307,8 @@ export struct ChatInput {
       this.usageRow(I18n.translate('contextLastOutput'), this.fmtTokens(this.lastOutputTokens))
       this.usageRow(I18n.translate('contextSessionTotal'),
         `${this.fmtTokens(this.sessionInputTokens)} / ${this.fmtTokens(this.sessionOutputTokens)}`)
-      if (this.contextUsed > 0) {
+      // 低于压缩阈值不展示入口：低占用压缩无意义，避免点了才被告知拒绝
+      if (this.contextUsed >= this.contextLimit * ModelInfo.COMPACT_MIN_RATIO) {
         Divider().color($r('app.color.list_separator')).strokeWidth(1)
         Row() {
           Text(I18n.translate('compactAction'))

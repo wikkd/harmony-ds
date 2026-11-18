@@ -16,6 +16,8 @@ export class ModelInfo {
   static readonly CONTEXT_LIMIT: number = 1000000;
   /** 最大输出长度（tokens） */
   static readonly MAX_OUTPUT: number = 384000;
+  /** 压缩阈值：上下文占用低于此比例时拒绝压缩（低占用压缩无意义，白耗一次请求） */
+  static readonly COMPACT_MIN_RATIO: number = 0.1;
 
   /** 官方单价：元 / 百万 tokens（搜索为 元/次，5 元/千次） */
   static readonly PRICE_IN_MISS_IDLE: number = 1;
