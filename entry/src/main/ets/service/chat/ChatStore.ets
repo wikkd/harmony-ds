@@ -155,6 +155,11 @@ export class ChatStore {
     }
   }
 
+  /** 本地恢复是否已完成（测试注入等待用） */
+  get isReady(): boolean {
+    return this.ready;
+  }
+
   async deleteSession(id: string): Promise<void> {
     // 真正中止 HTTP 流并收尾回复，避免后台请求继续占用连接
     this.abortStreaming(id);

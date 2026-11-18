@@ -7,6 +7,7 @@ import { ChatStore } from '../service/chat/ChatStore';
 import { ThemeHelper } from '../common/ThemeHelper';
 import { BreakpointUtil } from '../common/Breakpoint';
 import { AppContextHolder } from '../common/AppContextHolder';
+import { TestHarness } from '../common/TestHarness';
 
 const DOMAIN = 0x0000;
 const TAG = 'EntryAbility';
@@ -23,6 +24,12 @@ export default class EntryAbility extends UIAbility {
     }).catch(() => {
       AppStorage.setOrCreate<boolean>('hasApiKey', false);
     });
+    TestHarness.handle(want);
+  }
+
+  onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    // 已在运行时经 aa start --ps 再次拉起：走同样的注入入口
+    TestHarness.handle(want);
   }
 
   onDestroy(): void {
