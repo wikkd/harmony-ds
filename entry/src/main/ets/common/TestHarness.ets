@@ -1,8 +1,10 @@
 import { Want } from '@kit.AbilityKit';
 import BuildProfile from 'BuildProfile';
 import { ChatStore } from '../service/chat/ChatStore';
-import { ReplyBlock } from '../model/ChatTypes';
+import { ReplyBlock, FileAttachment } from '../model/ChatTypes';
 import { MessageUsage } from '../model/ApiTypes';
+import { Id } from './Format';
+import fs from '@ohos.file.fs';
 import { ApiClient } from '../service/api/ApiClient';
 import { ReplyEngine } from '../service/chat/ReplyEngine';
 import { KeyVault } from '../prefs/KeyVault';
@@ -92,13 +94,44 @@ export class TestHarness {
         + '> 引用块：自适应容器里的竖条要用 border 绘制。\n\n'
         + '| 列一 | 列二 |\n| --- | ---: |\n| 甲 | 12 |\n| 乙 | 345 |\n\n'
         + '```ts\nconst ok: boolean = true;\n```\n\n---';
-    } else if (scene === 'long') {
-      question = '长文滚动测试';
-      let sb = '下面是 30 段长文，用于滚动与定位条验证。\n\n';
-      for (let i = 1; i <= 30; i++) {
-        sb += `${i}. 第 ${i} 段：内容观察点 ${i * 7}，流式渲染下整块重渲由父层节流控制。\n\n`;
+    } else if (scene === 'img') {
+      // 图片预览测试：从应用缓存找一张历史附件图构造带图用户消息（无网络）
+      const cacheDir = AppContextHolder.get().cacheDir;
+      let imgPath = '';
+      let imgName = '';
+      try {
+        const files: string[] = fs.listFileSync(cacheDir, { recursion: false, listNum: 100 });
+        for (const p of files) {
+          const lower = p.toLowerCase();
+          if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png')) {
+            // recursion=false 时 listFileSync 返回文件名，需拼回绝对路径
+            imgPath = p.startsWith('/') ? p : `${cacheDir}/${p}`;
+            imgName = p.substring(p.lastIndexOf('/') + 1);
+            break;
+          }
+        }
+      } catch (e) {
+        Logger.warn(TAG, `img: list cache failed: ${JSON.stringify(e)}`);
       }
-      answer = sb;
+      if (imgPath === '') {
+        Logger.warn(TAG, 'img: no cached attachment image found');
+        return;
+      }
+      const session2 = store.current();
+      session2.title = '注入测试·img';
+      await store.renameSession(session2.id, session2.title);
+      const userMsg2 = store.appendUserMessage(session2, '图片预览测试', null);
+      const f = new FileAttachment();
+      f.id = Id.next();
+      f.name = imgName;
+      f.isImage = true;
+      f.localPath = imgPath;
+      f.size = 0;
+      userMsg2.files.push(f);
+      await store.persistMessage(session2, userMsg2);
+      await store.switchTo(session2.id);
+      Logger.info(TAG, `injected img: ${imgPath}`);
+      return;
     } else {
       Logger.warn(TAG, `unknown scene: ${scene}`);
       return;

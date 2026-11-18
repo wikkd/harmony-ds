@@ -57,6 +57,9 @@ export struct MessageList {
   @Local locateThumbH: number = 0;
   @Local locateThumbY: number = 0;
   @Local locateOn: boolean = false;
+  /** 全屏图片预览的本地路径与开关（isShow 需直绑布尔才响应） */
+  @Local previewPath: string = '';
+  @Local previewOn: boolean = false;
   private viewportH: number = 0;
   private thumbHolding: boolean = false;
   private thumbDragBase: number = 0;
@@ -169,6 +172,11 @@ export struct MessageList {
           })
         )
       }
+
+      // 全屏图片预览层（树内覆盖，点击任意处关闭）
+      if (this.previewOn) {
+        this.previewBuilder()
+      }
     }
     .width('100%')
     .height('100%')
@@ -177,28 +185,69 @@ export struct MessageList {
   }
 
   @Builder
+  previewBuilder() {
+    Stack({ alignContent: Alignment.TopEnd }) {
+      Image(`file://${this.previewPath}`)
+        .objectFit(ImageFit.Contain)
+        .width('100%')
+        .height('100%')
+      Image($r('app.media.ic_public_cancel'))
+        .width(26)
+        .height(26)
+        .fillColor($r('app.color.text_primary_contrary'))
+        .margin({
+          top: (AppStorage.get<number>('safeTopVp') ?? 0) + 12,
+          right: 16,
+        })
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor('#F0000000')
+    .onClick(() => {
+      this.previewOn = false;
+    })
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+  }
+
+  /** 文件条 chip（非图片附件；图片加载失败时也降级成它） */
+  @Builder
+  fileChip(f: FileAttachment) {
+    Row({ space: 4 }) {
+      Image(f.isImage ? $r('app.media.ic_public_picture') : $r('app.media.ic_public_file'))
+        .width(14)
+        .height(14)
+        .fillColor($r('app.color.text_primary_contrary'))
+      Text(f.name)
+        .fontSize(Fonts.caption())
+        .fontColor($r('app.color.text_primary_contrary'))
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .constraintSize({ maxWidth: 140 })
+    }
+    .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+    .backgroundColor($r('app.color.brand_pressed'))
+    .borderRadius(Dim.radiusS)
+  }
+
+  @Builder
   userRow(m: UserMessage) {
     Column({ space: 4 }) {
-      this.branchSwitcher(m)
-      // 附件 chips
+      this.branchSwitcher(m)      // 附件：图片直接出缩略图（点击全屏预览），其余出文件条
       if (m.files.length > 0) {
         Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.End }) {
           ForEach(m.files, (f: FileAttachment) => {
-            Row({ space: 4 }) {
-              Image(f.isImage ? $r('app.media.ic_public_picture') : $r('app.media.ic_public_file'))
-                .width(14)
-                .height(14)
-                .fillColor($r('app.color.text_primary_contrary'))
-              Text(f.name)
-                .fontSize(Fonts.caption())
-                .fontColor($r('app.color.text_primary_contrary'))
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-                .constraintSize({ maxWidth: 140 })
+            if (f.isImage && f.localPath !== '') {
+              AttPreview({
+                path: f.localPath,
+                name: f.name,
+                onOpen: (p: string): void => {
+                  this.previewPath = p;
+                  this.previewOn = true;
+                },
+              })
+            } else {
+              this.fileChip(f)
             }
-            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-            .backgroundColor($r('app.color.brand_pressed'))
-            .borderRadius(Dim.radiusS)
           }, (f: FileAttachment) => f.id)
         }
         .width('100%')
@@ -745,4 +794,48 @@ function openLink(context: Context, url: string): void {
     uri: url,
   };
   uiAbility.startAbility(want).catch(() => {});
+}
+
+/** 会话区图片预览缩略图：加载失败（缓存被清等）自动降级为文件条 */
+@ComponentV2
+struct AttPreview {
+  @Param path: string = '';
+  @Param name: string = '';
+  @Param onOpen: (path: string) => void = (): void => {};
+  @Local failed: boolean = false;
+
+  build() {
+    if (this.failed) {
+      Row({ space: 4 }) {
+        Image($r('app.media.ic_public_picture'))
+          .width(14)
+          .height(14)
+          .fillColor($r('app.color.text_primary_contrary'))
+        Text(this.name)
+          .fontSize(Fonts.caption())
+          .fontColor($r('app.color.text_primary_contrary'))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .constraintSize({ maxWidth: 140 })
+      }
+      .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+      .backgroundColor($r('app.color.brand_pressed'))
+      .borderRadius(Dim.radiusS)
+    } else {
+      // 沙箱路径需要 file:// 方案，纯绝对路径 Image 不认
+      Image(`file://${this.path}`)
+        .width(168)
+        .height(168)
+        .objectFit(ImageFit.Cover)
+        .borderRadius(Dim.radiusL)
+        .alt($r('app.media.ic_public_picture'))
+        .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.96 })
+        .onClick(() => {
+          this.onOpen(this.path);
+        })
+        .onError(() => {
+          this.failed = true;
+        })
+    }
+  }
 }

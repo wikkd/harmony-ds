@@ -47,10 +47,19 @@ export struct ChatInput {
   @Builder
   attachChip(f: FileAttachment) {
     Row({ space: 4 }) {
-      Image(f.isImage ? $r('app.media.ic_public_picture') : $r('app.media.ic_public_file'))
-        .width(15)
-        .height(15)
-        .fillColor($r('app.color.text_secondary'))
+      if (f.isImage && f.localPath !== '') {
+        // 待发图片出小缩略图，与消息区预览一致（沙箱路径需 file:// 方案）
+        Image(`file://${f.localPath}`)
+          .width(22)
+          .height(22)
+          .borderRadius(4)
+          .objectFit(ImageFit.Cover)
+      } else {
+        Image(f.isImage ? $r('app.media.ic_public_picture') : $r('app.media.ic_public_file'))
+          .width(15)
+          .height(15)
+          .fillColor($r('app.color.text_secondary'))
+      }
       Text(f.name)
         .fontSize(Fonts.caption())
         .fontColor($r('app.color.text_primary'))

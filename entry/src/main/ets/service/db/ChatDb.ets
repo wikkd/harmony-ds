@@ -275,7 +275,7 @@ export class ChatDb {
     for (const f of m.files) {
       const fo: Record<string, Object> = {
         'id': f.id, 'serverId': f.serverId ?? '', 'name': f.name, 'size': f.size,
-        'isImage': f.isImage, 'mimeType': f.mimeType,
+        'isImage': f.isImage, 'mimeType': f.mimeType, 'localPath': f.localPath,
       };
       files.push(fo);
     }
@@ -300,6 +300,7 @@ export class ChatDb {
         a.size = (f['size'] as number) ?? 0;
         a.isImage = (f['isImage'] as boolean) ?? false;
         a.mimeType = (f['mimeType'] as string) ?? '';
+        a.localPath = (f['localPath'] as string) ?? '';
         m.files.push(a);
       }
     }
