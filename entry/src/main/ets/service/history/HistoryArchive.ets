@@ -47,64 +47,60 @@ export class HistoryArchive {
   static async importZip(zipPath: string): Promise<number> {
     const context = AppContextHolder.get();
     const destDir = `${context.cacheDir}/import_${Date.now()}`;
-    fs.mkdirSync(destDir, true);
-    const options: zlib.Options = { level: 1 };
-    await zlib.unzipFile(zipPath, destDir, options);
-    // manifest 校验（首个条目约定，解压后直接读）
-    const manifestPath = `${destDir}/manifest.json`;
-    if (!fs.accessSync(manifestPath)) {
-      throw new ArchiveError('backupUnrecognized');
-    }
-    const manifest = JSON.parse(fs.readTextSync(manifestPath)) as Record<string, Object>;
-    const version = manifest['export_format_version'];
-    if (typeof version !== 'number') {
-      throw new ArchiveError('backupInvalidVersion');
-    }
-    if (version > EXPORT_FORMAT_VERSION) {
-      throw new ArchiveError('backupNewerVersion');
-    }
-    if (version !== EXPORT_FORMAT_VERSION) {
-      throw new ArchiveError('backupInvalidVersion');
-    }
-    // 会话索引
-    const indexPath = `${destDir}/chat_session_index.json`;
-    if (!fs.accessSync(indexPath)) {
-      throw new ArchiveError('backupIncomplete');
-    }
-    const index = JSON.parse(fs.readTextSync(indexPath)) as Array<Object>;
-    // 逐会话解析
-    const sessionsDir = `${destDir}/chat_sessions`;
-    const imported: Session[] = [];
-    for (const item of index) {
-      const entry = item as Record<string, Object>;
-      const sid = entry['id'];
-      if (typeof sid !== 'string' || sid.includes('/') || sid.includes('\\') || sid === '' ) {
-        throw new ArchiveError('backupIncomplete');
-      }
-      const jsonPath = `${sessionsDir}/${sid}.json`;
-      if (!fs.accessSync(jsonPath)) {
-        throw new ArchiveError('backupIncomplete');
-      }
-      const sessionFile = JSON.parse(fs.readTextSync(jsonPath)) as Record<string, Object>;
-      const session = HistoryArchive.sessionFromArchive(sid, sessionFile, destDir);
-      imported.push(session);
-    }
-    // 替换全部
-    await ChatDb.deleteAllSessions();
-    for (const s of imported) {
-      await ChatDb.upsertSession(s);
-      for (let i = 0; i < s.messages.length; i++) {
-        await ChatDb.upsertMessage(s.id, i, s.messages[i]);
-      }
-    }
-    // 清理解压目录
     try {
-      fs.rmdirSync(destDir);
-    } catch (e) {
-      // 忽略
+      fs.mkdirSync(destDir, true);
+      const options: zlib.Options = { level: 1 };
+      await zlib.unzipFile(zipPath, destDir, options);
+      // manifest 校验（首个条目约定，解压后直接读）
+      const manifestPath = `${destDir}/manifest.json`;
+      if (!fs.accessSync(manifestPath)) {
+        throw new ArchiveError('backupUnrecognized');
+      }
+      const manifest = JSON.parse(fs.readTextSync(manifestPath)) as Record<string, Object>;
+      const version = manifest['export_format_version'];
+      if (typeof version !== 'number') {
+        throw new ArchiveError('backupInvalidVersion');
+      }
+      if (version > EXPORT_FORMAT_VERSION) {
+        throw new ArchiveError('backupNewerVersion');
+      }
+      if (version !== EXPORT_FORMAT_VERSION) {
+        throw new ArchiveError('backupInvalidVersion');
+      }
+      // 会话索引
+      const indexPath = `${destDir}/chat_session_index.json`;
+      if (!fs.accessSync(indexPath)) {
+        throw new ArchiveError('backupIncomplete');
+      }
+      const index = JSON.parse(fs.readTextSync(indexPath)) as Array<Object>;
+      // 逐会话解析（先全部进内存，再一次性替换数据库）
+      const sessionsDir = `${destDir}/chat_sessions`;
+      const imported: Session[] = [];
+      for (const item of index) {
+        const entry = item as Record<string, Object>;
+        const sid = entry['id'];
+        if (typeof sid !== 'string' || sid.includes('/') || sid.includes('\\') || sid === '') {
+          throw new ArchiveError('backupIncomplete');
+        }
+        const jsonPath = `${sessionsDir}/${sid}.json`;
+        if (!fs.accessSync(jsonPath)) {
+          throw new ArchiveError('backupIncomplete');
+        }
+        const sessionFile = JSON.parse(fs.readTextSync(jsonPath)) as Record<string, Object>;
+        const session = HistoryArchive.sessionFromArchive(sid, sessionFile, destDir);
+        imported.push(session);
+      }
+      // 单事务替换：中途失败回滚，原会话与附件保持可用
+      await ChatDb.replaceAllSessions(imported);
+      Logger.info(TAG, `imported ${imported.length} sessions`);
+      return imported.length;
+    } finally {
+      try {
+        fs.rmdirSync(destDir);
+      } catch (e) {
+        // 忽略清理失败
+      }
     }
-    Logger.info(TAG, `imported ${imported.length} sessions`);
-    return imported.length;
   }
 
   // ---------- 导出 ----------
@@ -279,12 +275,14 @@ export class HistoryArchive {
               att.size = typeof fe['file_size'] === 'number' ? fe['file_size'] as number : 0;
               att.isImage = fe['is_image'] === true;
               att.mimeType = '';
-              // 图片原件
-              if (att.isImage && typeof fe['export_path'] === 'string') {
-                const localPath = `${rootDir}/${fe['export_path'] as string}`;
+              // 图片原件（export_path 来自外部 ZIP，必须校验防目录穿越）
+              const exportPath = typeof fe['export_path'] === 'string'
+                ? HistoryArchive.safeArchivePath(fe['export_path'] as string) : null;
+              if (att.isImage && exportPath !== null) {
+                const localPath = `${rootDir}/${exportPath}`;
                 try {
                   if (fs.accessSync(localPath)) {
-                    const dst = `${AppContextHolder.get().cacheDir}/att_${Id.next()}_${att.name}`;
+                    const dst = `${AppContextHolder.get().cacheDir}/att_${Id.next()}_${HistoryArchive.safeFileName(att.name)}`;
                     fs.copyFileSync(localPath, dst);
                     att.localPath = dst;
                   }
@@ -590,6 +588,34 @@ export class HistoryArchive {
   private static safeName(path: string): string {
     const slash = path.lastIndexOf('/');
     return slash >= 0 ? path.substring(slash + 1) : path;
+  }
+
+  /** 归档内相对路径校验：拒绝绝对路径、盘符与 .. 段，防止导出路径穿越 */
+  private static safeArchivePath(rel: string): string | null {
+    const normalized = rel.replace(/\\/g, '/');
+    if (normalized === '' || normalized.startsWith('/') || /^[A-Za-z]:/.test(normalized)) {
+      return null;
+    }
+    for (const part of normalized.split('/')) {
+      if (part === '' || part === '.' || part === '..') {
+        return null;
+      }
+    }
+    return normalized;
+  }
+
+  /** 附件落地文件名：只取末段，去掉控制字符，避免写出 cacheDir */
+  private static safeFileName(name: string): string {
+    let base = name.replace(/\\/g, '/');
+    const slash = base.lastIndexOf('/');
+    if (slash >= 0) {
+      base = base.substring(slash + 1);
+    }
+    base = base.replace(/[\u0000-\u001f]/g, '').trim();
+    if (base === '' || base === '.' || base === '..') {
+      return 'file';
+    }
+    return base;
   }
 
   /** 导出文件名（deepseek_data-YYYYMMDD.zip） */

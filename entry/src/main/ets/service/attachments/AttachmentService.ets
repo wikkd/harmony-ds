@@ -1,5 +1,6 @@
-import { picker } from '@kit.CoreFileKit';
+import { fileUri, picker } from '@kit.CoreFileKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
+import { camera, cameraPicker } from '@kit.CameraKit';
 import fs from '@ohos.file.fs';
 import { http } from '@kit.NetworkKit';
 import { util } from '@kit.ArkTS';
@@ -101,12 +102,11 @@ export class AttachmentService {
     return AttachmentService.purposeOf(name) === 'user_data' ? MAX_USER_DATA_MB : MAX_RICH_MB;
   }
 
-  /** 系统文件选择器（文档+图片混合）；currentCount 为已有附件数，超上限部分丢弃 */
-  static async pick(currentCount: number = 0): Promise<FileAttachment[]> {
+  /** 系统文件选择器（仅文档，不含图片） */
+  static async pickDocs(currentCount: number = 0): Promise<FileAttachment[]> {
     const context = AppContextHolder.get() as Context;
     const out: FileAttachment[] = [];
     const remaining = (): number => Math.max(0, MAX_COUNT - currentCount - out.length);
-    // 文档
     try {
       const docPicker = new picker.DocumentViewPicker();
       const docOptions = new picker.DocumentSelectOptions();
@@ -125,7 +125,14 @@ export class AttachmentService {
     } catch (err) {
       Logger.warn(TAG, `doc pick failed: ${JSON.stringify(err)}`);
     }
-    // 图片
+    return out;
+  }
+
+  /** 系统相册（仅图片） */
+  static async pickPhotos(currentCount: number = 0): Promise<FileAttachment[]> {
+    const context = AppContextHolder.get() as Context;
+    const out: FileAttachment[] = [];
+    const remaining = (): number => Math.max(0, MAX_COUNT - currentCount - out.length);
     try {
       const photoPicker = new photoAccessHelper.PhotoViewPicker();
       const photoOptions = new photoAccessHelper.PhotoSelectOptions();
@@ -145,6 +152,41 @@ export class AttachmentService {
       }
     } catch (err) {
       Logger.warn(TAG, `photo pick failed: ${JSON.stringify(err)}`);
+    }
+    return out;
+  }
+
+  /** 系统相机拍照（CameraPicker，无需相机权限）；照片经沙箱临时文件导入后清理 */
+  static async capture(currentCount: number = 0): Promise<FileAttachment[]> {
+    const context = AppContextHolder.get() as Context;
+    const out: FileAttachment[] = [];
+    if (currentCount >= MAX_COUNT) {
+      return out;
+    }
+    const tmp = `${context.cacheDir}/cam_${Id.next()}.jpg`;
+    try {
+      const f = fs.openSync(tmp, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+      fs.closeSync(f);
+      const profile: cameraPicker.PickerProfile = {
+        cameraPosition: camera.CameraPosition.CAMERA_POSITION_BACK,
+        saveUri: fileUri.getUriFromPath(tmp),
+      };
+      const result = await cameraPicker.pick(context, [cameraPicker.PickerMediaType.PHOTO], profile);
+      if (result.resultCode !== 0 || result.resultUri === '') {
+        return out; // 取消或失败
+      }
+      const att = await AttachmentService.importUri(context, result.resultUri);
+      if (att !== null) {
+        out.push(att);
+      }
+    } catch (err) {
+      Logger.warn(TAG, `camera pick failed: ${JSON.stringify(err)}`);
+    } finally {
+      try {
+        fs.unlinkSync(tmp);
+      } catch (e) {
+        // 忽略
+      }
     }
     return out;
   }

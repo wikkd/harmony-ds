@@ -17,30 +17,35 @@ export class ApiError extends Error {
 
   /** 按状态码给出本地化文案键对应的 i18n key（供 UI 层翻译） */
   static i18nKeyFor(err: ApiError): string {
-    if (err.kind === 'network') {
+    return ApiError.replyKeyFor(err.kind, err.status);
+  }
+
+  /** 回复气泡错误文案键：区分网络/鉴权/余额/限流/服务端/上传 */
+  static replyKeyFor(kind: ApiErrorKind | 'upload', status?: number): string {
+    if (kind === 'upload') {
+      return 'uploadFileStatusFailed';
+    }
+    if (kind === 'network' || kind === 'interrupted') {
       return 'commonNetworkErrorToast';
     }
-    if (err.kind === 'interrupted') {
-      return 'commonNetworkErrorToast';
-    }
-    const status = err.status ?? 0;
-    if (err.kind === 'http' || err.kind === 'protocol') {
-      if (status === 401) {
+    const code = status ?? 0;
+    if (kind === 'http' || kind === 'protocol') {
+      if (code === 401) {
         return 'replyInvalidApiKey';
       }
-      if (status === 402) {
+      if (code === 402) {
         return 'replyInsufficientBalance';
       }
-      if (status === 429) {
+      if (code === 429) {
         return 'replyRateLimited';
       }
-      if (status >= 500) {
+      if (code >= 500) {
         return 'completionServerBusyToast';
       }
     }
-    if (err.kind === 'stream' && status === 529) {
+    if (kind === 'stream' && code === 529) {
       return 'completionServerBusyToast';
     }
-    return 'unknownError';
+    return 'requestFailed';
   }
 }

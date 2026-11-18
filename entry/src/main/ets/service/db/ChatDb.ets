@@ -19,8 +19,8 @@ import { Logger } from '../../common/Logger';
 
 const TAG: string = 'ChatDb';
 const DB_NAME: string = 'chat.db';
-/** schema 版本：结构变更时递增并在 onUpgrade 迁移 */
-const SCHEMA_VERSION: number = 1;
+/** schema 版本：结构变更时递增并在启动时迁移 */
+const SCHEMA_VERSION: number = 2;
 
 /**
  * RelationalStore 持久层：
@@ -94,16 +94,18 @@ export class ChatDb {
 
   // ---------- sessions ----------
 
-  static async upsertSession(s: Session): Promise<void> {
-    const db = ChatDb.db();
-    const bucket: relationalStore.ValuesBucket = {
+  private static sessionBucket(s: Session): relationalStore.ValuesBucket {
+    return {
       'id': s.id,
       'title': s.title,
       'createdAt': s.createdAt,
       'updatedAt': s.updatedAt,
       'rootMessageId': s.rootMessageId ?? '',
     };
-    await db.insert('sessions', bucket);
+  }
+
+  static async upsertSession(s: Session): Promise<void> {
+    await ChatDb.db().insert('sessions', ChatDb.sessionBucket(s));
   }
 
   static async updateSessionMeta(s: Session): Promise<void> {
@@ -111,6 +113,8 @@ export class ChatDb {
     const bucket: relationalStore.ValuesBucket = {
       'title': s.title,
       'updatedAt': s.updatedAt,
+      // 根级分支切换/编辑首条消息会改 rootMessageId，必须一并落盘
+      'rootMessageId': s.rootMessageId ?? '',
       'compactAnchorId': s.compactAnchorId,
       'compactSummary': s.compactSummary,
     };
@@ -210,9 +214,8 @@ export class ChatDb {
 
   // ---------- messages ----------
 
-  static async upsertMessage(sessionId: string, seq: number, m: Message): Promise<void> {
-    const db = ChatDb.db();
-    const bucket: relationalStore.ValuesBucket = {
+  private static messageBucket(sessionId: string, seq: number, m: Message): relationalStore.ValuesBucket {
+    return {
       'id': m.id,
       'sessionId': sessionId,
       'seq': seq,
@@ -221,7 +224,34 @@ export class ChatDb {
       'selectedChildId': m.selectedChildId ?? '',
       'payloadJson': m.role === 'user' ? ChatDb.userToJson(m as UserMessage) : ChatDb.assistantToJson(m as AssistantMessage),
     };
-    await db.insert('messages', bucket);
+  }
+
+  static async upsertMessage(sessionId: string, seq: number, m: Message): Promise<void> {
+    await ChatDb.db().insert('messages', ChatDb.messageBucket(sessionId, seq, m));
+  }
+
+  /** 原子替换全部会话（历史导入用）：任何一步失败都回滚，保留原数据 */
+  static async replaceAllSessions(sessions: Session[]): Promise<void> {
+    const db = ChatDb.db();
+    const tx = await db.createTransaction();
+    try {
+      await tx.delete(new relationalStore.RdbPredicates('messages'));
+      await tx.delete(new relationalStore.RdbPredicates('sessions'));
+      for (const s of sessions) {
+        await tx.insert('sessions', ChatDb.sessionBucket(s));
+        for (let i = 0; i < s.messages.length; i++) {
+          await tx.insert('messages', ChatDb.messageBucket(s.id, i, s.messages[i]));
+        }
+      }
+      await tx.commit();
+    } catch (err) {
+      try {
+        await tx.rollback();
+      } catch (e) {
+        // 回滚失败时保留原始错误
+      }
+      throw err as Error;
+    }
   }
 
   static async updateMessage(sessionId: string, seq: number, m: Message): Promise<void> {

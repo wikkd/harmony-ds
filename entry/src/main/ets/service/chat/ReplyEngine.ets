@@ -47,6 +47,18 @@ export class ReplyEngine {
   private static aborters: Map<string, StreamAborter> = new Map();
   private static blockIndexes: Map<string, Map<number, number>> = new Map();
   private static pending: Map<string, PendingSend> = new Map();
+  private static hooksInstalled: boolean = false;
+
+  /** 注入 Store 的流中止回调（幂等）：删除会话/清空数据时能真正断开 HTTP */
+  private static installHooks(): void {
+    if (ReplyEngine.hooksInstalled) {
+      return;
+    }
+    ReplyEngine.hooksInstalled = true;
+    ChatStore.get().onAbortStream = (sessionId: string): void => {
+      ReplyEngine.stop(sessionId);
+    };
+  }
 
   static isStreaming(sessionId: string): boolean {
     return ChatStore.get().streamingSessionId === sessionId;
@@ -78,6 +90,7 @@ export class ReplyEngine {
 
   /** 发送一条用户消息并流式接收回复 */
   static async send(sessionId: string, question: string, files: FileAttachment[] = []): Promise<void> {
+    ReplyEngine.installHooks();
     const store = ChatStore.get();
     const session = store.sessionById(sessionId);
     if (session === null || store.streamingSessionId !== null) {
@@ -86,6 +99,11 @@ export class ReplyEngine {
     const apiKey = await KeyVault.load(AppContextHolder.get());
     if (apiKey === null || apiKey === '') {
       Logger.warn(TAG, 'no api key');
+      return;
+    }
+    // KeyVault 读取是异步的：并发调用可能都通过入口检查，进入前再确认一次
+    if (store.streamingSessionId !== null) {
+      Logger.warn(TAG, 'another stream started while loading key');
       return;
     }
     const settings = SettingsStore.get();
@@ -182,6 +200,7 @@ export class ReplyEngine {
 
   /** 重新生成：在指定用户消息下新建 assistant 兄弟并重发同一问题 */
   static async regenerate(sessionId: string, userMsgId: string, question: string): Promise<void> {
+    ReplyEngine.installHooks();
     const store = ChatStore.get();
     const session = store.sessionById(sessionId);
     if (session === null || store.streamingSessionId !== null) {
@@ -190,6 +209,10 @@ export class ReplyEngine {
     const apiKey = await KeyVault.load(AppContextHolder.get());
     if (apiKey === null || apiKey === '') {
       Logger.warn(TAG, 'no api key');
+      return;
+    }
+    if (store.streamingSessionId !== null) {
+      Logger.warn(TAG, 'another stream started while loading key');
       return;
     }
     const settings = SettingsStore.get();
@@ -231,6 +254,7 @@ export class ReplyEngine {
 
   /** 编辑重发：在原用户消息的父节点下新建用户分支并发送 */
   static async sendEdited(sessionId: string, originalUserId: string, newText: string, files: FileAttachment[] = []): Promise<void> {
+    ReplyEngine.installHooks();
     const store = ChatStore.get();
     const session = store.sessionById(sessionId);
     if (session === null || store.streamingSessionId !== null) {
@@ -239,6 +263,10 @@ export class ReplyEngine {
     const apiKey = await KeyVault.load(AppContextHolder.get());
     if (apiKey === null || apiKey === '') {
       Logger.warn(TAG, 'no api key');
+      return;
+    }
+    if (store.streamingSessionId !== null) {
+      Logger.warn(TAG, 'another stream started while loading key');
       return;
     }
     const original = store.findMessage(session, originalUserId);

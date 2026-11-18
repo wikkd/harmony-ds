@@ -21,6 +21,33 @@ export interface StreamCallbacks {
   onDone: () => void;
 }
 
+/** 取响应头字段：兼容 Record<string,string> 与 Array<Array<string>> 两种运行时形状 */
+function headerValue(headers: Object, name: string): string {
+  try {
+    if (Array.isArray(headers)) {
+      const rows = headers as Array<Array<string>>;
+      for (const row of rows) {
+        if (row.length >= 2 && row[0].toLowerCase() === name) {
+          return row.slice(1).join(';');
+        }
+      }
+      return '';
+    }
+    const rec = headers as Record<string, string>;
+    const key = Object.keys(rec).find((k: string): boolean => k.toLowerCase() === name);
+    if (key === undefined) {
+      return '';
+    }
+    const v: Object = rec[key];
+    if (Array.isArray(v)) {
+      return (v as Array<string>).join(';');
+    }
+    return typeof v === 'string' ? v as string : '';
+  } catch (e) {
+    return '';
+  }
+}
+
 /** 中止句柄：UI 的停止按钮调用 abort() */
 export class StreamAborter {
   private request?: http.HttpRequest;
@@ -94,53 +121,70 @@ export class ApiClient {
     };
 
     req.on('headersReceive', (headers: Object) => {
-      const h = headers as Record<string, string>;
-      const ctKey = Object.keys(h).find((k) => k.toLowerCase() === 'content-type');
-      if (ctKey !== undefined) {
-        contentType = h[ctKey] ?? '';
+      contentType = headerValue(headers, 'content-type');
+      // 头部先于数据块到达：此处立即切流式，不等 requestInStream 的 Promise
+      //（部分设备上它在整段流结束才 resolve，期间 statusCode 一直是 0）
+      if (contentType.toLowerCase().includes('text/event-stream')) {
+        sseMode = true;
       }
     });
+
+    /** 解析一批已解码的 SSE 事件：错误帧直接失败，其余派发给回调 */
+    const handleSseEvents = (events: ServerSentEvent[]): void => {
+      for (const ev of events) {
+        if (ev.event === 'error') {
+          fail(new ApiError('stream', ev.data));
+          return;
+        }
+        let payload: Record<string, Object> | null;
+        try {
+          payload = JSON.parse(ev.data) as Record<string, Object>;
+        } catch (e) {
+          payload = null;
+        }
+        if (payload !== null) {
+          // 流中无名 error 帧（如等待生成超时）
+          const errRec = payload['error'];
+          if (errRec !== null && errRec !== undefined) {
+            const errObj = errRec as Record<string, Object>;
+            const msg = typeof errObj['message'] === 'string' ? errObj['message'] as string : ev.data;
+            fail(new ApiError('stream', msg));
+            return;
+          }
+          const parsed = parseMessageEvent(payload);
+          if (parsed !== null) {
+            if (parsed.type === 'message_stop') {
+              sawMessageStop = true;
+            }
+            callbacks.onEvent(parsed);
+          }
+        }
+      }
+    };
 
     req.on('dataReceive', (chunk: ArrayBuffer) => {
       if (aborter.internalIsAborted() || finished) {
         return;
       }
       const bytes = new Uint8Array(chunk);
+      const text = utf8.decodeToString(bytes, { stream: true });
       if (sseMode) {
-        const text = utf8.decodeToString(bytes, { stream: true });
-        const events: ServerSentEvent[] = decoder.push(text);
-        for (const ev of events) {
-          if (ev.event === 'error') {
-            fail(new ApiError('stream', ev.data));
-            return;
-          }
-          let payload: Record<string, Object> | null;
-          try {
-            payload = JSON.parse(ev.data) as Record<string, Object>;
-          } catch (e) {
-            payload = null;
-          }
-          if (payload !== null) {
-            // 流中无名 error 帧（如等待生成超时）
-            const errRec = payload['error'];
-            if (errRec !== null && errRec !== undefined) {
-              const errObj = errRec as Record<string, Object>;
-              const msg = typeof errObj['message'] === 'string' ? errObj['message'] as string : ev.data;
-              fail(new ApiError('stream', msg));
-              return;
-            }
-            const parsed = parseMessageEvent(payload);
-            if (parsed !== null) {
-              if (parsed.type === 'message_stop') {
-                sawMessageStop = true;
-              }
-              callbacks.onEvent(parsed);
-            }
-          }
+        handleSseEvents(decoder.push(text));
+        return;
+      }
+      // 非 SSE（错误响应体）累积原文
+      errorBody += text;
+      // 嗅探兜底：内容形如 SSE（event:/data:/id: 行开头）时切回流式解析。
+      // 不依赖 statusCode（Promise 迟 resolve 时它还是 0）；
+      // 错误响应是 JSON/HTML，不会命中这几个前缀，误判风险可忽略
+      if (errorBody.length >= 6) {
+        const head = errorBody.trimStart();
+        if (head.startsWith('event:') || head.startsWith('data:') || head.startsWith('id:') || head.startsWith(':')) {
+          sseMode = true;
+          const events: ServerSentEvent[] = decoder.push(errorBody);
+          errorBody = '';
+          handleSseEvents(events);
         }
-      } else {
-        // 非 SSE（错误响应体）累积原文
-        errorBody += utf8.decodeToString(bytes, { stream: true });
       }
     });
 
@@ -163,6 +207,10 @@ export class ApiClient {
         } catch (e) {
           // 非 JSON 响应体直接展示原文
         }
+        // 原文超长时截断，避免整段响应刷进气泡
+        if (message.length > 400) {
+          message = `${message.slice(0, 400)}…`;
+        }
         fail(new ApiError(statusCode >= 200 && statusCode < 300 ? 'protocol' : 'http',
           message === '' ? 'unknown error' : message, statusCode > 0 ? statusCode : undefined));
         return;
@@ -173,28 +221,7 @@ export class ApiClient {
       for (const evEnd of tailEnd) {
         tail.push(evEnd);
       }
-      for (const ev of tail) {
-        if (ev.event === 'error') {
-          fail(new ApiError('stream', ev.data));
-          return;
-        }
-        try {
-          const payload = JSON.parse(ev.data) as Record<string, Object>;
-          if (payload !== null && payload['error'] !== undefined) {
-            fail(new ApiError('stream', ev.data));
-            return;
-          }
-          const parsed = parseMessageEvent(payload);
-          if (parsed !== null) {
-            if (parsed.type === 'message_stop') {
-              sawMessageStop = true;
-            }
-            callbacks.onEvent(parsed);
-          }
-        } catch (e) {
-          // 无法解析的内容忽略
-        }
-      }
+      handleSseEvents(tail);
       if (sawMessageStop) {
         finished = true;
         try {
@@ -217,6 +244,7 @@ export class ApiClient {
             'x-api-key': apiKey,
             'Content-Type': 'application/json',
             'Accept': 'text/event-stream',
+            'anthropic-version': '2023-06-01',
           },
           extraData: bodyJson,
           expectDataType: http.HttpDataType.ARRAY_BUFFER,

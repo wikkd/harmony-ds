@@ -61,6 +61,8 @@ export class ChatStore {
   /** 流式状态统一入口：同步 AppStorage 供 V1 组件读取 */
   /** 流式结束（置空）后的回调；延迟一拍派发，避开 stop() 同步收尾的 pending 竞态 */
   onStreamingEnd: (() => void) | null = null;
+  /** 中止在途流请求的注入点（ReplyEngine 注册，避免 Store 反向依赖 Engine） */
+  onAbortStream: ((sessionId: string) => void) | null = null;
 
   setStreaming(id: string | null): void {
     this.streamingSessionId = id;
@@ -138,11 +140,24 @@ export class ChatStore {
     await ChatDb.updateSessionMeta(s);
   }
 
-  async deleteSession(id: string): Promise<void> {
-    const abortInStream = this.streamingSessionId === id;
-    if (abortInStream) {
+  /** 中止在途流（默认当前会话）：删除/导入等破坏性操作前调用，避免旧流继续写库 */
+  abortStreaming(sessionId: string | null = null): void {
+    const target = sessionId ?? this.streamingSessionId;
+    if (target === null || this.streamingSessionId !== target) {
+      return;
+    }
+    if (this.onAbortStream !== null) {
+      this.onAbortStream(target);
+    }
+    // stop() 正常会同步置空；仅在未注册回调时兜底，避免重复触发 onStreamingEnd
+    if (this.streamingSessionId === target) {
       this.setStreaming(null);
     }
+  }
+
+  async deleteSession(id: string): Promise<void> {
+    // 真正中止 HTTP 流并收尾回复，避免后台请求继续占用连接
+    this.abortStreaming(id);
     const idx = this.sessions.findIndex((s) => s.id === id);
     if (idx >= 0) {
       this.sessions.splice(idx, 1);
@@ -159,7 +174,7 @@ export class ChatStore {
   }
 
   async deleteAll(): Promise<void> {
-    this.setStreaming(null);
+    this.abortStreaming();
     this.sessions = [];
     this.loadedSessions.clear();
     this.visible = [];
@@ -313,7 +328,7 @@ export class ChatStore {
 
   /** 导入完成后重建本地状态 */
   async reloadAfterImport(): Promise<void> {
-    this.setStreaming(null);
+    this.abortStreaming();
     this.sessions = [];
     this.loadedSessions.clear();
     this.visible = [];
