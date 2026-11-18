@@ -13,7 +13,40 @@ import { PageHeader } from './PageHeader';
 /**
  * 数据管理子页（仿官方）：每行独立白卡 + 大间距，无分组头、行不带图标；
  * 导入卡下方附灰色说明文字；删除行为红字独立卡。
+ * 卡片用子组件而非 @Builder：真机（平板）上 @Builder 渲染的卡片文本/图标
+ * 会被整体吞掉只剩 Blank（同款 optionRow 在设置页正常，原因待查），子组件无此问题。
  */
+@ComponentV2
+struct ActionCard {
+  @Param label: string = '';
+  @Param danger: boolean = false;
+  @Param onCardTap: () => void = (): void => {};
+
+  build() {
+    Row() {
+      Text(this.label)
+        .fontSize(Fonts.body1())
+        .fontColor(this.danger ? $r('app.color.warning') : $r('app.color.text_primary'))
+        .layoutWeight(1)
+      if (!this.danger) {
+        Image($r('app.media.ic_public_arrow_right'))
+          .width(16)
+          .height(16)
+          .fillColor($r('app.color.text_tertiary'))
+      }
+    }
+    .width('100%')
+    .height(56)
+    .padding({ left: 16, right: 16 })
+    .backgroundColor($r('app.color.card_bg'))
+    .borderRadius(Dim.radiusL)
+    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.98 })
+    .onClick(() => {
+      this.onCardTap();
+    })
+  }
+}
+
 @ComponentV2
 export struct DataManagePage {
   @Param pathStack: NavPathStack = new NavPathStack();
@@ -21,21 +54,41 @@ export struct DataManagePage {
 
   build() {
     NavDestination() {
-      Column() {
-        PageHeader({
-          title: I18n.translate('dataManage'),
-          onBack: (): void => {
-            this.pathStack.pop();
-          },
-        })
+      Stack() {
+        Column() {
+          PageHeader({
+            title: I18n.translate('dataManage'),
+            onBack: (): void => {
+              this.pathStack.pop();
+            },
+          })
         Scroll() {
           Column({ space: 20 }) {
-            this.actionCard('usageStats', (): void => {
+            Row() {
+              Text(I18n.translate('usageStats'))
+                .fontSize(Fonts.body1())
+                .fontColor($r('app.color.text_primary'))
+                .layoutWeight(1)
+              Image($r('app.media.ic_public_arrow_right'))
+                .width(16)
+                .height(16)
+                .fillColor($r('app.color.text_tertiary'))
+            }
+            .width('100%')
+            .height(56)
+            .padding({ left: 16, right: 16 })
+            .backgroundColor($r('app.color.card_bg'))
+            .borderRadius(Dim.radiusL)
+            .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.98 })
+            .onClick(() => {
               this.pathStack.pushPathByName('usage', null);
             })
             Column({ space: 8 }) {
-              this.actionCard('historyImport', (): void => {
-                this.confirmImport();
+              ActionCard({
+                label: I18n.translate('historyImport'),
+                onCardTap: (): void => {
+                  this.confirmImport();
+                },
               })
               Text(I18n.translate('historyImportDescription'))
                 .fontSize(Fonts.caption())
@@ -45,11 +98,18 @@ export struct DataManagePage {
             }
             .width('100%')
             .alignItems(HorizontalAlign.Start)
-            this.actionCard('exportAllLabel', (): void => {
-              this.doExport();
+            ActionCard({
+              label: I18n.translate('exportAllLabel'),
+              onCardTap: (): void => {
+                this.doExport();
+              },
             })
-            this.dangerCard('deleteAllSessions', (): void => {
-              this.confirmDeleteAll();
+            ActionCard({
+              label: I18n.translate('deleteAllSessions'),
+              danger: true,
+              onCardTap: (): void => {
+                this.confirmDeleteAll();
+              },
             })
           }
           .padding({ left: Dim.pagePadding, right: Dim.pagePadding, top: 8, bottom: 44 })
@@ -60,59 +120,19 @@ export struct DataManagePage {
         .align(Alignment.Top)
         // 内容滚动手势条下方：行滚到底部只被手势条浮层遮住，不在安全区分界线被裁切
         .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
+        }
+        .width('100%')
+        .height('100%')
+        .backgroundColor($r('app.color.settings_bg'))
+        .alignItems(HorizontalAlign.Center)
       }
       .width('100%')
       .height('100%')
-      .backgroundColor($r('app.color.settings_bg'))
-      .alignItems(HorizontalAlign.Center)
     }
     .hideTitleBar(true)
     .backgroundColor($r('app.color.settings_bg'))
     // 灰底延伸进手势条避让区，否则 Navigation 白底在页面底部露条
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
-  }
-
-  /** 独立动作卡：标题 + 箭头 */
-  @Builder
-  actionCard(labelKey: string, onTap: () => void) {
-    Row() {
-      Text(I18n.translate(labelKey))
-        .fontSize(Fonts.body1())
-        .fontColor($r('app.color.text_primary'))
-      Blank()
-      Image($r('app.media.ic_public_arrow_right'))
-        .width(16)
-        .height(16)
-        .fillColor($r('app.color.text_tertiary'))
-    }
-    .width('100%')
-    .height(56)
-    .padding({ left: 16, right: 16 })
-    .backgroundColor($r('app.color.card_bg'))
-    .borderRadius(Dim.radiusL)
-    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.98 })
-    .onClick(() => {
-      onTap();
-    })
-  }
-
-  /** 独立危险卡：红字无箭头 */
-  @Builder
-  dangerCard(labelKey: string, onTap: () => void) {
-    Row() {
-      Text(I18n.translate(labelKey))
-        .fontSize(Fonts.body1())
-        .fontColor($r('app.color.warning'))
-    }
-    .width('100%')
-    .height(56)
-    .padding({ left: 16, right: 16 })
-    .backgroundColor($r('app.color.card_bg'))
-    .borderRadius(Dim.radiusL)
-    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.98 })
-    .onClick(() => {
-      onTap();
-    })
   }
 
   private confirmDeleteAll(): void {
