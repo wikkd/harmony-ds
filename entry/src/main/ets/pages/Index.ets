@@ -583,6 +583,14 @@ struct ChatView {
       files = [];
     }
     this.draftFiles = [];
+    // 上下文将满：弹窗询问是否先压缩再发送（编辑重发同样适用）
+    if (ModelInfo.isContextFull(this.stat.used)) {
+      const editingId = this.editingId;
+      this.editingId = '';
+      this.draft = '';
+      this.confirmCompactThenSend(text, files, editingId);
+      return;
+    }
     if (this.editingId !== '') {
       const id = this.editingId;
       this.editingId = '';
@@ -592,6 +600,46 @@ struct ChatView {
       this.draft = '';
       ReplyEngine.send(this.store.currentSessionId, text, files);
     }
+  }
+
+  /** 上下文将满的发送确认：压缩并发送（成功后自动续发）/ 直接发送 */
+  private confirmCompactThenSend(text: string, files: FileAttachment[], editingId: string): void {
+    const deliver = (): void => {
+      if (editingId !== '') {
+        ReplyEngine.sendEdited(this.store.currentSessionId, editingId, text, files);
+      } else {
+        ReplyEngine.send(this.store.currentSessionId, text, files);
+      }
+    };
+    this.getUIContext().showAlertDialog({
+      title: I18n.translate('compactAskTitle'),
+      message: I18n.translate('compactAskMessage'),
+      alignment: DialogAlignment.Center,
+      autoCancel: true,
+      secondaryButton: {
+        value: I18n.translate('compactAskSendOnly'),
+        fontColor: $r('app.color.text_secondary'),
+        action: (): void => {
+          deliver();
+        },
+      },
+      primaryButton: {
+        value: I18n.translate('compactAskCompactSend'),
+        fontColor: $r('app.color.brand_activated'),
+        action: (): void => {
+          this.getUIContext().getPromptAction()
+            .showToast({ message: I18n.translate('compactRunning'), duration: 3000 });
+          ReplyEngine.compact(this.store.currentSessionId).then((): void => {
+            deliver();
+          }).catch((): void => {
+            // 压缩失败不阻断发送：上下文若真超限由 API 错误路径提示
+            this.getUIContext().getPromptAction()
+              .showToast({ message: I18n.translate('compactFailed'), duration: 2500 });
+            deliver();
+          });
+        },
+      },
+    });
   }
 }
 

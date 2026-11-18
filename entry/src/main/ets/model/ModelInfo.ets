@@ -19,6 +19,11 @@ export class ModelInfo {
   /** 压缩阈值：上下文占用低于此比例时拒绝压缩（低占用压缩无意义，白耗一次请求） */
   static readonly COMPACT_MIN_RATIO: number = 0.1;
 
+  /** 上下文是否将满：剩余空间已容不下一次最大输出，继续发送回复会被截断 */
+  static isContextFull(usedTokens: number): boolean {
+    return usedTokens >= ModelInfo.CONTEXT_LIMIT - ModelInfo.MAX_OUTPUT;
+  }
+
   /** 官方单价：元 / 百万 tokens（搜索为 元/次，5 元/千次） */
   static readonly PRICE_IN_MISS_IDLE: number = 1;
   static readonly PRICE_IN_MISS_PEAK: number = 2;
