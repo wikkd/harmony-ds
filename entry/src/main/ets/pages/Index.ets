@@ -153,6 +153,10 @@ struct HomePage {
       }
       .width('100%')
       .height('100%')
+      // 宽屏常驻侧栏必须用 padding 让位（布局级）：translate 不改布局宽度，
+      // width('100%') 子件仍按全窗宽居中/铺开，欢迎态与输入面板会整体右偏、右缘被裁。
+      // translate 只承担窄屏抽屉动画。
+      .padding({ left: this.isWide() ? Dim.siderWidth : 0 })
       .translate({ x: this.contentShift() })
 
       // 抽屉展开期间的透明触控层：无压暗、无渐变，仅用于点击空白处收起抽屉
@@ -192,9 +196,9 @@ struct HomePage {
     .parallelGesture(this.drawerPan())
   }
 
-  /** 主内容水平位移：宽屏常驻让出侧栏宽度，窄屏随抽屉进度向右推出 */
+  /** 主内容水平位移：宽屏由 padding 让位（位移 0），窄屏随抽屉进度向右推出 */
   private contentShift(): number {
-    return this.isWide() ? Dim.siderWidth : Dim.siderWidth * this.drawerProgress;
+    return this.isWide() ? 0 : Dim.siderWidth * this.drawerProgress;
   }
 
   /** 侧栏水平位移：收起时完全藏在屏幕左缘外 */
