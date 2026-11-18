@@ -1,7 +1,7 @@
 import { Fonts } from '../../common/Fonts';
 import { BlockNode, InlineNode, MarkdownParser } from './MarkdownParser';
 import { CodeBlock } from './CodeBlock';
-import { MathBlock, MathInline } from './MathView';
+import { MathBlock, MathInline, MathConverter } from './MathView';
 import { MermaidView } from './MermaidView';
 import { Dim } from '../../common/DesignTokens';
 
@@ -12,21 +12,80 @@ export class FlatSpan {
   italic: boolean = false;
   del: boolean = false;
   code: boolean = false;
+  math: boolean = false;
   link: boolean = false;
   url: string = '';
+}
+
+/** 软换行两侧是否都为 CJK 字符：是则不产生空格 */
+function isCjkChar(ch: string): boolean {
+  if (ch === '') {
+    return false;
+  }
+  const c = ch.codePointAt(0) ?? 0;
+  return (c >= 0x2E80 && c <= 0x9FFF) || (c >= 0xAC00 && c <= 0xD7AF)
+    || (c >= 0xF900 && c <= 0xFAFF) || (c >= 0x3000 && c <= 0x303F) || (c >= 0xFF00 && c <= 0xFFEF)
+    || (c >= 0x2018 && c <= 0x201F);
+}
+
+function lastCharOf(s: string): string {
+  return s.length > 0 ? s.charAt(s.length - 1) : '';
+}
+
+/** 取行内节点树中第一个可见字符（递归穿过强调/链接等容器） */
+function firstCharOfNode(n: InlineNode | null): string {
+  if (n === null) {
+    return '';
+  }
+  if (n.type === 'text' || n.type === 'code' || n.type === 'math' || n.type === 'image') {
+    return n.text.length > 0 ? n.text.charAt(0) : '';
+  }
+  for (const c of n.children) {
+    const ch = firstCharOfNode(c);
+    if (ch !== '') {
+      return ch;
+    }
+  }
+  return '';
 }
 
 export class Flatten {
   static run(nodes: InlineNode[], base: FlatSpan | null): FlatSpan[] {
     const out: FlatSpan[] = [];
-    for (const n of nodes) {
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
       if (n.type === 'softbreak') {
-        const s = new FlatSpan();
-        s.text = ' ';
-        out.push(s);
+        // CJK 之间的软换行不产生空格：既避免句中出现多余空格，
+        // 也消除该空格引入的断行点（句末标点被单独挤到下一行）
+        const prevLast = out.length > 0 ? lastCharOf(out[out.length - 1].text) : '';
+        const nextFirst = firstCharOfNode(i + 1 < nodes.length ? nodes[i + 1] : null);
+        if (!(isCjkChar(prevLast) && isCjkChar(nextFirst))) {
+          const s = new FlatSpan();
+          s.text = ' ';
+          out.push(s);
+        }
         continue;
       }
-      if (n.type === 'text' || n.type === 'code' || n.type === 'math') {
+      if (n.type === 'math') {
+        // 行内公式：过 MathConverter 转 Unicode 子集（\pi→π、x^2→x²），
+        // 否则 Flatten 会把 LaTeX 原文直接当文本显示
+        const spans = MathConverter.convert(n.text);
+        for (const ms of spans) {
+          const s = new FlatSpan();
+          s.text = ms.text;
+          if (base !== null) {
+            s.bold = base.bold;
+            s.italic = base.italic;
+            s.del = base.del;
+            s.link = base.link;
+            s.url = base.url;
+          }
+          s.math = true;
+          out.push(s);
+        }
+        continue;
+      }
+      if (n.type === 'text' || n.type === 'code') {
         const s = new FlatSpan();
         s.text = n.text;
         if (base !== null) {
@@ -111,21 +170,16 @@ struct BlockView {
     } else if (this.block.type === 'hr') {
       Divider().color($r('app.color.list_separator')).strokeWidth(1)
     } else if (this.block.type === 'blockquote') {
-      Row({ space: 10 }) {
-        Rect()
-          .width(3)
-          .height('100%')
-          .fill($r('app.color.quote_bar'))
-          .borderRadius(2)
-        Column({ space: 6 }) {
-          ForEach(this.block.children, (c: BlockNode, i: number) => {
-            BlockView({ block: c })
-          }, (c: BlockNode, i: number) => `q${i}`)
-        }
-        .layoutWeight(1)
+      // 引用竖条用左边框绘制：Rect+height('100%') 在自适应高度容器里会按
+      // 父级下发的视口约束解析，把整条引用撑到近一屏高（下方全是空白）
+      Column({ space: 6 }) {
+        ForEach(this.block.children, (c: BlockNode, i: number) => {
+          BlockView({ block: c })
+        }, (c: BlockNode, i: number) => `q${i}`)
       }
       .width('100%')
-      .alignItems(VerticalAlign.Top)
+      .padding({ left: 12 })
+      .border({ width: { left: 3 }, color: { left: $r('app.color.quote_bar') } })
     } else if (this.block.type === 'list') {
       Column({ space: 4 }) {
         ForEach(this.block.items, (item: BlockNode, i: number) => {
@@ -199,7 +253,7 @@ struct BlockView {
               (s.link ? { type: TextDecorationType.Underline, color: $r('app.color.hyperlink') } : { type: TextDecorationType.None }))
             .fontColor(s.code ? $r('app.color.brand_activated') :
               (s.link ? $r('app.color.hyperlink') : $r('app.color.text_primary')))
-            .fontFamily(s.code ? 'monospace' : (Fonts.family() === '' ? 'sans-serif' : Fonts.family()))
+            .fontFamily(s.math ? 'serif' : (s.code ? 'monospace' : 'sans-serif'))
         }, (s: FlatSpan, i: number) => `f${i}`)
       }
       .fontSize(this.fontSize())
@@ -252,7 +306,6 @@ struct InlineText {
       }, (s: FlatSpan, i: number) => `c${i}`)
     }
     .fontSize(Fonts.body2())
-.fontFamily(Fonts.family())
     .width('100%')
   }
 }

@@ -43,7 +43,76 @@ export class MarkdownParser {
   /** 解析整篇 */
   static parse(src: string): BlockNode[] {
     const lines = src.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-    return MarkdownParser.parseBlocks(lines, 0, lines.length);
+    return MarkdownParser.mergeLonePunct(MarkdownParser.parseBlocks(lines, 0, lines.length));
+  }
+
+  /** 收集行内节点树的全部可见文本（递归穿过强调/链接容器） */
+  private static inlineText(nodes: InlineNode[]): string {
+    let out = '';
+    for (const n of nodes) {
+      if (n.type === 'text' || n.type === 'code' || n.type === 'math') {
+        out += n.text;
+      } else {
+        out += MarkdownParser.inlineText(n.children);
+      }
+    }
+    return out;
+  }
+
+  /** 纯标点文本判定（句末标点被模型/分段单独切开时用于回并） */
+  static isPunctOnlyText(t: string): boolean {
+    const s = t.trim();
+    if (s === '') {
+      return false;
+    }
+    const closers = '。，、；：！？!?,.;:…‥·~～—）】》〉」』”’"\'' + '-';
+    for (const ch of s) {
+      if (closers.indexOf(ch) < 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** 是否为「纯标点段落」：模型偶发把句末标点单独断成一段（常伴空行） */
+  private static isPunctOnly(b: BlockNode): boolean {
+    if (b.type !== 'p') {
+      return false;
+    }
+    return MarkdownParser.isPunctOnlyText(MarkdownParser.inlineText(b.inlines));
+  }
+
+  /** 把纯标点段落并入前一个块（段落/列表末项/引用末段），渲染为紧接前文的标点 */
+  private static mergeLonePunct(blocks: BlockNode[]): BlockNode[] {
+    const out: BlockNode[] = [];
+    for (const b of blocks) {
+      if (out.length > 0 && MarkdownParser.isPunctOnly(b)) {
+        const prev = out[out.length - 1];
+        let target: BlockNode | null = null;
+        if (prev.type === 'p') {
+          target = prev;
+        } else if (prev.type === 'list' && prev.items.length > 0) {
+          const kids = prev.items[prev.items.length - 1].children;
+          if (kids.length > 0 && kids[kids.length - 1].type === 'p') {
+            target = kids[kids.length - 1];
+          }
+        } else if (prev.type === 'blockquote' && prev.children.length > 0
+          && prev.children[prev.children.length - 1].type === 'p') {
+          target = prev.children[prev.children.length - 1];
+        }
+        if (target !== null) {
+          const br = new InlineNode();
+          br.type = 'softbreak';
+          target.inlines.push(br);
+          for (const n of b.inlines) {
+            target.inlines.push(n);
+          }
+          continue;
+        }
+      }
+      out.push(b);
+    }
+    return out;
   }
 
   private static parseBlocks(lines: string[], start: number, end: number): BlockNode[] {
@@ -86,6 +155,29 @@ export class MarkdownParser {
           }
           i++;
           while (i < end && lines[i].trim() !== '$$') {
+            inner.push(lines[i]);
+            i++;
+          }
+          i++;
+          math.mathText = inner.join('\n').trim();
+        }
+        blocks.push(math);
+        continue;
+      }
+      // 数学块 \[...\]（DeepSeek 实际输出格式）
+      if (trimmed.startsWith('\\[')) {
+        const math = new BlockNode();
+        math.type = 'math';
+        if (trimmed.length > 2 && trimmed.endsWith('\\]')) {
+          math.mathText = trimmed.substring(2, trimmed.length - 2).trim();
+          i++;
+        } else {
+          let inner: string[] = [];
+          if (trimmed.length > 2) {
+            inner.push(trimmed.substring(2));
+          }
+          i++;
+          while (i < end && lines[i].trim() !== '\\]') {
             inner.push(lines[i]);
             i++;
           }
@@ -139,29 +231,53 @@ export class MarkdownParser {
         list.type = 'list';
         list.ordered = listMatch.ordered;
         list.start = listMatch.num;
+        let currentItem: BlockNode | null = null;
+        let itemLines: string[] = [];
+        const flushItem = (): void => {
+          if (currentItem !== null) {
+            currentItem.children = MarkdownParser.parseBlocks(itemLines, 0, itemLines.length);
+            list.items.push(currentItem);
+            currentItem = null;
+            itemLines = [];
+          }
+        };
         while (i < end) {
           const m = MarkdownParser.listMarker(lines[i]);
-          if (m === null || m.ordered !== listMatch.ordered) {
+          const l = lines[i].trim();
+          if (m !== null && m.ordered === listMatch.ordered) {
+            // 新列表项
+            flushItem();
+            currentItem = new BlockNode();
+            currentItem.type = 'item';
+            currentItem.task = m.task;
+            currentItem.taskDone = m.taskDone;
+            itemLines = [lines[i].substring(m.contentStart)];
+            i++;
+            // 同项续行（缩进行）
+            while (i < end && lines[i].trim() !== '' && MarkdownParser.listMarker(lines[i]) === null
+              && (lines[i].startsWith(' ') || lines[i].startsWith('\t'))) {
+              itemLines.push(lines[i].trim());
+              i++;
+            }
+            continue;
+          }
+          if (l === '') {
+            // 空行结束列表
             break;
           }
-          const item = new BlockNode();
-          item.type = 'item';
-          item.task = m.task;
-          item.taskDone = m.taskDone;
-          const content = lines[i].substring(m.contentStart);
-          const itemLines: string[] = [content];
-          i++;
-          // 同项续行（缩进或普通续行直到空行/新标记）
-          while (i < end && lines[i].trim() !== '' && MarkdownParser.listMarker(lines[i]) === null
-            && (lines[i].startsWith(' ') || lines[i].startsWith('\t'))) {
-            itemLines.push(lines[i].trim());
+          // 非标记非空行：CommonMark 滞后延续，并入当前项。
+          // 模型偶发把句末标点单独断行（如孤立的“。”），原逻辑会把它拆成独立段落/列表项
+          if (currentItem !== null) {
+            itemLines.push(l);
             i++;
+            continue;
           }
-          const sub = MarkdownParser.parseBlocks(itemLines, 0, itemLines.length);
-          item.children = sub;
-          list.items.push(item);
+          break;
         }
-        blocks.push(list);
+        flushItem();
+        if (list.items.length > 0) {
+          blocks.push(list);
+        }
         continue;
       }
       // 表格
@@ -356,6 +472,19 @@ export class MarkdownParser {
           n.text = s.substring(i + 1, close);
           out.push(n);
           i = close + 1;
+          continue;
+        }
+      }
+      // 行内公式 \(...\)（DeepSeek 实际输出格式）
+      if (ch === '\\' && i + 1 < s.length && s.charAt(i + 1) === '(') {
+        const closeParen = s.indexOf('\\)', i + 2);
+        if (closeParen > i + 2) {
+          flush();
+          const n = new InlineNode();
+          n.type = 'math';
+          n.text = s.substring(i + 2, closeParen);
+          out.push(n);
+          i = closeParen + 2;
           continue;
         }
       }

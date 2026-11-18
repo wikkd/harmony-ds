@@ -18,20 +18,8 @@ const SUB_MAP: Record<string, string> = {
   '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
   '+': '₊', '-': '₋', '=': '₌', '(': '₍', ')': '₎', 'a': 'ₐ', 'e': 'ₑ', 'o': 'ₒ', 'x': 'ₓ',
   'h': 'ₕ', 'k': 'ₖ', 'l': 'ₗ', 'm': 'ₘ', 'n': 'ₙ', 'p': 'ₚ', 's': 'ₛ', 't': 'ₜ', ' ': ' ',
+  'i': 'ᵢ', 'j': 'ⱼ',
 };
-
-function scriptText(raw: string, map: Record<string, string>, caret: string): string {
-  let out = '';
-  for (const ch of raw) {
-    const mapped = map[ch];
-    if (mapped !== undefined) {
-      out += mapped;
-    } else {
-      out += `${caret}${ch}`;
-    }
-  }
-  return out;
-}
 
 export class MathConverter {
   private static symbols: Record<string, string> = {
@@ -70,6 +58,42 @@ export class MathConverter {
     return out;
   }
 
+  /** 组内 LaTeX 递归转成可读文本（\pi→π、\sqrt{b^2-4ac}→√(b²-4ac)），供 frac/sqrt/上下标复用 */
+  private static flatten(latex: string): string {
+    const spans: MathSpan[] = [];
+    MathConverter.walk(latex, 0, spans);
+    let out = '';
+    for (const s of spans) {
+      out += s.text;
+    }
+    return out;
+  }
+
+  /** 整组可映射为上标字符时返回映射结果，否则 null（调用方回退 ^{...} 形式） */
+  private static toSuper(text: string): string | null {
+    let out = '';
+    for (const ch of text) {
+      const m = SUPER_MAP[ch];
+      if (m === undefined) {
+        return null;
+      }
+      out += m;
+    }
+    return out;
+  }
+
+  private static toSub(text: string): string | null {
+    let out = '';
+    for (const ch of text) {
+      const m = SUB_MAP[ch];
+      if (m === undefined) {
+        return null;
+      }
+      out += m;
+    }
+    return out;
+  }
+
   private static walk(latex: string, start: number, out: MathSpan[]): number {
     // 用栈式实现替代闭包递归
     let plain = '';
@@ -87,8 +111,12 @@ export class MathConverter {
       if (ch === '^' || ch === '_') {
         flush();
         const group = MathConverter.readGroup(latex, i + 1);
+        // 组内先递归转换再整体映射上下标；有字符映射不了就保留 ^{...}，
+        // 避免逐字符硬映射把 \pi 拆成 "^\^p" 式乱码
+        const inner = MathConverter.flatten(group.text);
+        const mapped = ch === '^' ? MathConverter.toSuper(inner) : MathConverter.toSub(inner);
         const s = new MathSpan();
-        s.text = scriptText(group.text, ch === '^' ? SUPER_MAP : SUB_MAP, ch === '^' ? '^' : '_');
+        s.text = mapped !== null ? mapped : `${ch}{${inner}}`;
         out.push(s);
         i = group.next;
         continue;
@@ -104,7 +132,7 @@ export class MathConverter {
           const den = MathConverter.readGroup(latex, num.next);
           flush();
           const s = new MathSpan();
-          s.text = `(${num.text})/(${den.text})`;
+          s.text = `(${MathConverter.flatten(num.text)})/(${MathConverter.flatten(den.text)})`;
           out.push(s);
           i = den.next;
           continue;
@@ -113,7 +141,7 @@ export class MathConverter {
           const arg = MathConverter.readGroup(latex, j);
           flush();
           const s = new MathSpan();
-          s.text = `√(${arg.text})`;
+          s.text = `√(${MathConverter.flatten(arg.text)})`;
           out.push(s);
           i = arg.next;
           continue;
