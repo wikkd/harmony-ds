@@ -30,6 +30,9 @@ export class CharacterCard {
 
   static parse(raw: string): string {
     const text = raw.replace(/\r\n/g, '\n').trim();
+    if (text.startsWith('{')) {
+      return CharacterCard.parseJson(text);
+    }
     if (!text.startsWith('---')) {
       return CharacterCard.clamp(text);
     }
@@ -40,6 +43,11 @@ export class CharacterCard {
     }
     const values = CharacterCard.parseFrontmatter(text.substring(3, close));
     const body = text.substring(close + 4).trim();
+    return CharacterCard.clamp(CharacterCard.assemble(values, body));
+  }
+
+  /** 已知键按序组装为【标签】值 段落，正文追加在后 */
+  private static assemble(values: Map<string, string>, body: string): string {
     let out = '';
     for (const key of KEY_ORDER) {
       const v = values.get(key);
@@ -50,7 +58,7 @@ export class CharacterCard {
     if (body !== '') {
       out += body;
     }
-    return CharacterCard.clamp(out.trim());
+    return out.trim();
   }
 
   /** 从选择的文档 URI 读文本（上限 1MB，角色卡远小于此） */
@@ -73,6 +81,29 @@ export class CharacterCard {
       }
     }
   }
+
+  /** SillyTavern JSON 卡（含 chara_card_v2 的 data 嵌套）：取已知字段组装，非法 JSON 返回空串 */
+  private static parseJson(text: string): string {
+    let obj: Record<string, Object>;
+    try {
+      obj = JSON.parse(text) as Record<string, Object>;
+    } catch (e) {
+      return '';
+    }
+    const data = obj['data'];
+    if (data !== null && data !== undefined && typeof data === 'object') {
+      obj = data as Record<string, Object>;
+    }
+    const values = new Map<string, string>();
+    for (const key of KEY_ORDER) {
+      const v = obj[key];
+      if (typeof v === 'string' && v.trim() !== '') {
+        values.set(key, v.trim());
+      }
+    }
+    return CharacterCard.clamp(CharacterCard.assemble(values, ''));
+  }
+
 
   /** frontmatter 结束位置（独立成行的 ---），找不到返回 -1 */
   private static frontmatterClose(text: string): number {

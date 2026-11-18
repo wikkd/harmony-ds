@@ -241,5 +241,16 @@ export default function coreTests(): void {
       }
       expect(CharacterCard.parse(long).length === 2000).assertTrue();
     });
+    it('parses flat json card', 0, () => {
+      const raw = '{"name":"艾达","description":"机械师","greeting":"你好，旅行者。"}';
+      expect(CharacterCard.parse(raw) === '【角色名】艾达\n\n【角色设定】机械师\n\n【开场白】你好，旅行者。').assertTrue();
+    });
+    it('parses chara_card_v2 nested data', 0, () => {
+      const raw = '{"spec":"chara_card_v2","spec_version":"2.0","data":{"name":"薇拉","personality":"冷静","first_mes":"晚上好。"}}';
+      expect(CharacterCard.parse(raw) === '【角色名】薇拉\n\n【性格】冷静\n\n【开场白】晚上好。').assertTrue();
+    });
+    it('invalid json yields empty', 0, () => {
+      expect(CharacterCard.parse('{ broken json') === '').assertTrue();
+    });
   });
 }

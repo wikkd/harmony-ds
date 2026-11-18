@@ -109,7 +109,7 @@ export struct PersonaPage {
       const docPicker = new picker.DocumentViewPicker();
       const opts = new picker.DocumentSelectOptions();
       opts.maxSelectNumber = 1;
-      opts.fileSuffixFilters = ['.md', '.markdown', '.txt'];
+      // 不设后缀过滤：角色卡可能是 .md/.json/.txt 或无后缀，过滤会让文件在选择器里不可见
       const res = await docPicker.select(opts);
       if (res.length === 0) {
         return; // 用户取消
