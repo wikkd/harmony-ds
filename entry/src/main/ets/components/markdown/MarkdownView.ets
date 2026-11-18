@@ -1,3 +1,4 @@
+import { Fonts } from '../../common/Fonts';
 import { BlockNode, InlineNode, MarkdownParser } from './MarkdownParser';
 import { CodeBlock } from './CodeBlock';
 import { MathBlock, MathInline } from './MathView';
@@ -131,15 +132,15 @@ struct BlockView {
           Row({ space: 8 }) {
             if (item.task) {
               Text(item.taskDone ? '☑' : '☐')
-                .fontSize($r('app.float.font_body1'))
+                .fontSize(Fonts.body1())
                 .fontColor($r('app.color.brand'))
             } else if (this.block.ordered) {
               Text(`${this.block.start + i}.`)
-                .fontSize($r('app.float.font_body1'))
+                .fontSize(Fonts.body1())
                 .fontColor($r('app.color.text_primary'))
             } else {
               Text('•')
-                .fontSize($r('app.float.font_body1'))
+                .fontSize(Fonts.body1())
                 .fontColor($r('app.color.text_secondary'))
             }
             Column({ space: 4 }) {
@@ -198,30 +199,30 @@ struct BlockView {
               (s.link ? { type: TextDecorationType.Underline, color: $r('app.color.hyperlink') } : { type: TextDecorationType.None }))
             .fontColor(s.code ? $r('app.color.brand_activated') :
               (s.link ? $r('app.color.hyperlink') : $r('app.color.text_primary')))
-            .fontFamily(s.code ? 'monospace' : 'sans-serif')
+            .fontFamily(s.code ? 'monospace' : (Fonts.family() === '' ? 'sans-serif' : Fonts.family()))
         }, (s: FlatSpan, i: number) => `f${i}`)
       }
       .fontSize(this.fontSize())
-      .lineHeight(this.block.type.startsWith('h') ? 32 : 26)
+      .lineHeight(Math.round((this.block.type.startsWith('h') ? 32 : 26) * Fonts.scale()))
       .width('100%')
     }
   }
 
-  private fontSize(): Resource {
+  private fontSize(): number {
     const t = this.block.type;
     if (t === 'h1') {
-      return $r('app.float.font_headline6');
+      return Fonts.headline6();
     }
     if (t === 'h2') {
-      return $r('app.float.font_headline7');
+      return Fonts.headline7();
     }
     if (t === 'h3') {
-      return $r('app.float.font_headline8');
+      return Fonts.headline8();
     }
     if (t === 'h4' || t === 'h5' || t === 'h6') {
-      return $r('app.float.font_headline9');
+      return Fonts.headline9();
     }
-    return $r('app.float.font_body1');
+    return Fonts.body1();
   }
 
   private cellAlign(ci: number): HorizontalAlign {
@@ -250,7 +251,8 @@ struct InlineText {
           .fontColor(s.code ? $r('app.color.brand_activated') : $r('app.color.text_primary'))
       }, (s: FlatSpan, i: number) => `c${i}`)
     }
-    .fontSize($r('app.float.font_body2'))
+    .fontSize(Fonts.body2())
+.fontFamily(Fonts.family())
     .width('100%')
   }
 }

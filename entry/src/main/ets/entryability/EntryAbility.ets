@@ -14,6 +14,7 @@ const TAG = 'EntryAbility';
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(DOMAIN, TAG, 'Ability onCreate');
+    AppStorage.setOrCreate<boolean>('appForeground', false);
     AppContextHolder.set(this.context);
     SettingsStore.get().init(this.context);
     ChatStore.get().restore().catch(() => {});
@@ -57,6 +58,10 @@ export default class EntryAbility extends UIAbility {
           const props: window.WindowProperties = mainWin.getWindowProperties();
           const density: number = display.getDefaultDisplaySync().densityPixels || 2;
           BreakpointUtil.updateWindowWidth(props.windowRect.width / density);
+          // 手势条（导航指示条）区域系统默认不避让，读取高度供页面底部留白
+          const indicator: window.AvoidArea =
+            mainWin.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR);
+          AppStorage.setOrCreate<number>('safeBottomVp', indicator.bottomRect.height / density);
         } catch (e) {
           hilog.warn(DOMAIN, TAG, 'breakpoint update failed: %{public}s', JSON.stringify(e));
         }
@@ -74,9 +79,11 @@ export default class EntryAbility extends UIAbility {
 
   onForeground(): void {
     hilog.info(DOMAIN, TAG, 'Ability onForeground');
+    AppStorage.setOrCreate<boolean>('appForeground', true);
   }
 
   onBackground(): void {
     hilog.info(DOMAIN, TAG, 'Ability onBackground');
+    AppStorage.setOrCreate<boolean>('appForeground', false);
   }
 }

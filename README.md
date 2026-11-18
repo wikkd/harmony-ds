@@ -14,12 +14,15 @@ DeepSeek 官方 [chat-demo](https://github.com/deepseek-ai/chat-demo) 的鸿蒙�
 - 附件：文件/图片选择、Files API 上传（purpose 判定）、file_id 引用发送
 - 语音：录音（WAV）→ ASR 转写输入；回复朗读（TTS 24kHz PCM 流式播放）
 - 双语（简体中文/English）、深浅色主题（跟随系统/手动）、位置信息设置
+- 个性化：自定义人格与回复要求提示词（角色扮演），与模型身份声明合并后对所有新回复生效
 - 数据：RelationalStore 持久化、历史导入导出（与 web 版 v3 ZIP 格式互通，图片原件包含、API Key 排除）、删除全部对话
 - 安全：API Key 存于系统关键资产库（Asset Store Kit），不随导出文件离开本机
 
 ## 协议
 
-Anthropic 兼容 Messages API（`POST /anthropic/v1/messages`，stream），`x-api-key` 鉴权；`GET /models` 校验 Key；`/anthropic/v1/files` 附件；`/v1/tools/asr|tts` 语音。默认服务地址 `https://api.deepseek.com`。
+Anthropic 兼容 Messages API（`POST /anthropic/v1/messages`，stream），`x-api-key` 鉴权；`GET /models` 校验 Key；`/anthropic/v1/files` 附件；`/v1/tools/asr|tts` 语音。默认服务地址 `https://api.deepseek.com`。在原版基础上增加「思考强度」设置（`output_config.effort`：较低 / 标准 / 最高）。
+
+**外接自定义模型**：设置 → 模型与服务 可更换服务地址与模型 ID。非内置（`deepseek-*`）模型按标准 Anthropic 协议发送（仅 `model/messages/stream/max_tokens`，不含 DeepSeek 专有的服务端工具、`latest_reminder`、`safety_check`、`output_config` 与自动标题；语音、附件、联网搜索不可用），需服务端兼容 Anthropic Messages 流式协议。
 
 ## 构建
 

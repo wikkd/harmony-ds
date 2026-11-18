@@ -1,3 +1,4 @@
+import { Fonts } from '../../common/Fonts';
 import { CodeSpan, Highlighter } from './Highlighter';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { promptAction } from '@kit.ArkUI';
@@ -18,7 +19,7 @@ export struct CodeBlock {
     Column() {
       Row() {
         Text(this.lang === '' ? 'text' : this.lang)
-          .fontSize($r('app.float.font_caption'))
+          .fontSize(Fonts.caption())
           .fontColor($r('app.color.text_secondary'))
         Blank()
         Image($r('app.media.ic_public_copy'))
@@ -41,7 +42,7 @@ export struct CodeBlock {
                   .fontColor(this.colorFor(span.kind))
               }, (span: CodeSpan, i: number) => `${i}`)
             }
-            .fontSize($r('app.float.font_body2'))
+            .fontSize(Fonts.body2())
             .fontFamily('monospace')
             .width('100%')
           }, (line: LineSpans, idx: number) => `ln_${idx}`)
@@ -122,7 +123,7 @@ export struct CodeBlock {
     try {
       const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, this.code);
       pasteboard.getSystemPasteboard().setData(data).then(() => {
-        promptAction.showToast({ message: I18n.translate('copied'), duration: 1200 });
+        this.getUIContext().getPromptAction().showToast({ message: I18n.translate('copied'), duration: 1200 });
       });
     } catch (err) {
       // 忽略

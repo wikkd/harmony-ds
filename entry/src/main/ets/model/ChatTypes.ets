@@ -135,6 +135,10 @@ export class Session {
   @Trace messages: Message[] = [];
   /** 包含所有分支的消息，按创建顺序存储（M3 启用分支） */
   rootMessageId: string | null = null;
+  /** compact 压缩点：该消息（含）之前的对话已压缩为摘要 */
+  @Trace compactAnchorId: string = '';
+  /** compact 压缩摘要文本 */
+  @Trace compactSummary: string = '';
 
   constructor(id: string, createdAt: number) {
     this.id = id;

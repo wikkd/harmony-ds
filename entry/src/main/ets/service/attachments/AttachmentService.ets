@@ -12,10 +12,49 @@ import { Id } from '../../common/Format';
 import { SettingsStore } from '../../prefs/SettingsStore';
 
 const TAG: string = 'AttachmentService';
-/** 需要服务端版面解析的扩展名（purpose=rich_layout_recognition），其余 user_data */
+/** 需要服务端版面解析的扩展名（purpose=rich_layout_recognition），其余 user_data（对齐原版） */
 const RICH_EXTS: Set<string> = new Set(['pdf', 'doc', 'docx', 'ppt', 'pptx']);
 const IMAGE_EXTS: Set<string> = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'heic']);
-const MAX_FILE_MB: number = 100;
+/** 允许上传的扩展名（文档/表格/演示/文本/代码/图片，取自原版清单的常用子集） */
+const ACCEPT_EXTS: Set<string> = new Set([
+  'pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv', 'tsv',
+  'txt', 'md', 'log', 'html', 'htm', 'json', 'xml', 'yaml', 'yml', 'toml', 'ini', 'conf',
+  'ts', 'tsx', 'js', 'jsx', 'py', 'java', 'c', 'h', 'cpp', 'hpp', 'cs', 'go', 'rs', 'swift',
+  'kt', 'rb', 'php', 'sh', 'bat', 'sql', 'vue', 'gradle', 'r', 'm', 'pl',
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'heic', 'svg', 'ico', 'tif', 'tiff', 'avif',
+  'epub', 'mobi', 'eml', 'msg',
+]);
+/** 大小上限（MB）：按 purpose 区分（对齐原版 64/32） */
+const MAX_RICH_MB: number = 64;
+const MAX_USER_DATA_MB: number = 32;
+/** 单会话附件总数上限（对齐原版） */
+const MAX_COUNT: number = 50;
+/** 常见类型的真实 MIME（上传分片 Content-Type），未命中用 octet-stream */
+const MIME_BY_EXT: Map<string, string> = new Map([
+  ['pdf', 'application/pdf'],
+  ['doc', 'application/msword'],
+  ['docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+  ['ppt', 'application/vnd.ms-powerpoint'],
+  ['pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+  ['xls', 'application/vnd.ms-excel'],
+  ['xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+  ['png', 'image/png'], ['jpg', 'image/jpeg'], ['jpeg', 'image/jpeg'], ['gif', 'image/gif'],
+  ['webp', 'image/webp'], ['bmp', 'image/bmp'], ['svg', 'image/svg+xml'], ['ico', 'image/x-icon'],
+  ['tif', 'image/tiff'], ['tiff', 'image/tiff'], ['avif', 'image/avif'], ['heic', 'image/heic'],
+  ['txt', 'text/plain'], ['md', 'text/markdown'], ['log', 'text/plain'],
+  ['csv', 'text/csv'], ['tsv', 'text/tab-separated-values'],
+  ['html', 'text/html'], ['htm', 'text/html'], ['json', 'application/json'],
+  ['xml', 'text/xml'], ['yaml', 'text/yaml'], ['yml', 'text/yaml'],
+  ['epub', 'application/epub+zip'],
+]);
+/** 文档选择器过滤项（点号后缀） */
+const DOC_SUFFIX_FILTERS: string[] = [
+  '.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.csv', '.tsv',
+  '.txt', '.md', '.log', '.html', '.htm', '.json', '.xml', '.yaml', '.yml', '.toml', '.ini', '.conf',
+  '.ts', '.tsx', '.js', '.jsx', '.py', '.java', '.c', '.h', '.cpp', '.hpp', '.cs', '.go', '.rs',
+  '.swift', '.kt', '.rb', '.php', '.sh', '.bat', '.sql', '.vue', '.gradle', '.r', '.m', '.pl',
+  '.epub', '.mobi', '.eml', '.msg',
+];
 
 export interface FileObject {
   id: string;
@@ -49,17 +88,35 @@ export class AttachmentService {
     return IMAGE_EXTS.has(AttachmentService.extOf(name));
   }
 
-  /** 系统文件选择器（文档+图片混合） */
-  static async pick(): Promise<FileAttachment[]> {
+  static isAccepted(name: string): boolean {
+    return ACCEPT_EXTS.has(AttachmentService.extOf(name));
+  }
+
+  static mimeTypeOf(name: string): string {
+    const mime = MIME_BY_EXT.get(AttachmentService.extOf(name));
+    return mime === undefined ? 'application/octet-stream' : mime;
+  }
+
+  private static maxSizeMb(name: string): number {
+    return AttachmentService.purposeOf(name) === 'user_data' ? MAX_USER_DATA_MB : MAX_RICH_MB;
+  }
+
+  /** 系统文件选择器（文档+图片混合）；currentCount 为已有附件数，超上限部分丢弃 */
+  static async pick(currentCount: number = 0): Promise<FileAttachment[]> {
     const context = AppContextHolder.get() as Context;
     const out: FileAttachment[] = [];
+    const remaining = (): number => Math.max(0, MAX_COUNT - currentCount - out.length);
     // 文档
     try {
       const docPicker = new picker.DocumentViewPicker();
       const docOptions = new picker.DocumentSelectOptions();
       docOptions.maxSelectNumber = 9;
+      docOptions.fileSuffixFilters = DOC_SUFFIX_FILTERS;
       const uris = await docPicker.select(docOptions);
       for (const uri of uris) {
+        if (remaining() <= 0) {
+          break;
+        }
         const att = await AttachmentService.importUri(context, uri);
         if (att !== null) {
           out.push(att);
@@ -77,6 +134,9 @@ export class AttachmentService {
       const result = await photoPicker.select(photoOptions);
       if (result.photoUris !== undefined) {
         for (const uri of result.photoUris) {
+          if (remaining() <= 0) {
+            break;
+          }
           const att = await AttachmentService.importUri(context, uri);
           if (att !== null) {
             out.push(att);
@@ -94,11 +154,17 @@ export class AttachmentService {
     try {
       const file = fs.openSync(uri, fs.OpenMode.READ_ONLY);
       const stat = fs.statSync(file.fd);
-      if (stat.size > MAX_FILE_MB * 1024 * 1024) {
+      const displayName = AttachmentService.uriFileName(uri);
+      if (!AttachmentService.isAccepted(displayName)) {
+        Logger.warn(TAG, `unsupported ext: ${displayName}`);
         fs.closeSync(file);
         return null;
       }
-      const displayName = AttachmentService.uriFileName(uri);
+      if (stat.size > AttachmentService.maxSizeMb(displayName) * 1024 * 1024) {
+        Logger.warn(TAG, `oversize: ${displayName} ${stat.size}`);
+        fs.closeSync(file);
+        return null;
+      }
       const localPath = `${context.cacheDir}/att_${Id.next()}_${displayName}`;
       const dst = fs.openSync(localPath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
       fs.copyFileSync(file.fd, dst.fd);
@@ -159,7 +225,8 @@ export class AttachmentService {
     if (purpose !== null) {
       parts.push(enc.encodeInto(`--${boundary}\r\nContent-Disposition: form-data; name="purpose"\r\n\r\n${purpose}\r\n`));
     }
-    parts.push(enc.encodeInto(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${att.name}"\r\nContent-Type: application/octet-stream\r\n\r\n`));
+    const mime = AttachmentService.mimeTypeOf(att.name);
+    parts.push(enc.encodeInto(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${att.name}"\r\nContent-Type: ${mime}\r\n\r\n`));
     parts.push(bytes);
     parts.push(enc.encodeInto(`\r\n--${boundary}--\r\n`));
     let total = 0;

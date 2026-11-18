@@ -1,6 +1,8 @@
+import { Fonts } from '../../common/Fonts';
 import { I18n } from '../../common/I18n';
 import { Dim } from '../../common/DesignTokens';
 import { ChatStore } from '../../service/chat/ChatStore';
+import { MarkdownExport } from '../../service/history/MarkdownExport';
 import { Session } from '../../model/ChatTypes';
 import { promptAction } from '@kit.ArkUI';
 
@@ -14,6 +16,7 @@ export struct Sider {
   @Param onSessionSelected: () => void = () => {};
   @Local renamingId: string = '';
   @Local renameText: string = '';
+  @Local showRenameSheet: boolean = false;
 
   build() {
     Stack() {
@@ -25,7 +28,7 @@ export struct Sider {
             .height(20)
             .fillColor($r('app.color.text_primary'))
           Text(I18n.translate('newChat'))
-            .fontSize($r('app.float.font_body1'))
+            .fontSize(Fonts.body1())
             .fontColor($r('app.color.text_primary'))
           Blank()
         }
@@ -34,6 +37,7 @@ export struct Sider {
         .borderRadius(Dim.radiusM)
         .padding({ left: 12 })
         .backgroundColor($r('app.color.component_normal'))
+        .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.97 })
         .onClick(() => {
           this.store.newSession();
           this.onSessionSelected();
@@ -44,7 +48,7 @@ export struct Sider {
           ForEach(this.groups(), (g: SiderGroup) => {
             ListItem() {
               Text(g.label)
-                .fontSize($r('app.float.font_body3'))
+                .fontSize(Fonts.body3())
                 .fontColor($r('app.color.text_tertiary'))
                 .width('100%')
                 .padding({ left: 12, top: 14, bottom: 6 })
@@ -53,7 +57,7 @@ export struct Sider {
               ListItem() {
                 Row() {
                   Text(this.store.displayTitle(s))
-                    .fontSize($r('app.float.font_body2'))
+                    .fontSize(Fonts.body2())
                     .fontColor(s.id === this.store.currentSessionId ? $r('app.color.text_primary') : $r('app.color.text_secondary'))
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -62,9 +66,8 @@ export struct Sider {
                     .width(18)
                     .height(18)
                     .fillColor($r('app.color.text_tertiary'))
-                    .onClick(() => {
-                      this.showItemMenu(s);
-                    })
+                    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
+                    .bindMenu(this.sessionMenu(s))
                 }
                 .width('100%')
                 .height(44)
@@ -86,60 +89,62 @@ export struct Sider {
       .width('100%')
       .height('100%')
       .padding(8)
-
-      // 重命名弹层
-      if (this.renamingId !== '') {
-        Column() {
-          Column({ space: 12 }) {
-            Text(I18n.translate('sessionItemMenuRenameOption'))
-              .fontSize($r('app.float.font_headline9'))
-              .fontWeight(FontWeight.Medium)
-              .fontColor($r('app.color.text_primary'))
-            TextInput({
-              text: this.renameText,
-              placeholder: I18n.translate('untitledChat'),
-            })
-              .fontSize($r('app.float.font_body1'))
-              .fontColor($r('app.color.text_primary'))
-              .backgroundColor($r('app.color.text_field_sub_bg'))
-              .borderRadius(Dim.radiusS)
-              .onChange((v: string) => {
-                this.renameText = v;
-              })
-            Row({ space: 12 }) {
-              Button(I18n.translate('cancel'))
-                .fontSize($r('app.float.font_body2'))
-                .backgroundColor($r('app.color.component_normal'))
-                .fontColor($r('app.color.text_primary'))
-                .layoutWeight(1)
-                .onClick(() => {
-                  this.renamingId = '';
-                })
-              Button(I18n.translate('confirm'))
-                .fontSize($r('app.float.font_body2'))
-                .backgroundColor($r('app.color.brand'))
-                .fontColor($r('app.color.text_primary_contrary'))
-                .layoutWeight(1)
-                .onClick(() => {
-                  this.store.renameSession(this.renamingId, this.renameText);
-                  this.renamingId = '';
-                })
-            }
-            .width('100%')
-          }
-          .padding(20)
-          .backgroundColor($r('app.color.dialog_bg'))
-          .borderRadius(Dim.radiusL)
-          .width('86%')
-        }
-        .width('100%')
-        .height('100%')
-        .backgroundColor($r('app.color.mask_regular'))
-        .justifyContent(FlexAlign.Center)
-      }
     }
     .width('100%')
     .height('100%')
+    // 重命名：半模态面板（鸿蒙习惯，替代自绘遮罩弹层）
+    .bindSheet(!!this.showRenameSheet, this.renameSheet(), {
+      height: 300,
+      dragBar: true,
+      backgroundColor: Color.Transparent,
+    })
+  }
+
+  /** 重命名半模态面板内容 */
+  @Builder
+  renameSheet() {
+    Column({ space: 16 }) {
+      Text(I18n.translate('sessionItemMenuRenameOption'))
+        .fontSize(Fonts.headline9())
+        .fontWeight(FontWeight.Medium)
+        .fontColor($r('app.color.text_primary'))
+        .width('100%')
+      TextInput({
+        text: this.renameText,
+        placeholder: I18n.translate('untitledChat'),
+      })
+        .fontSize(Fonts.body1())
+        .fontColor($r('app.color.text_primary'))
+        .backgroundColor($r('app.color.text_field_sub_bg'))
+        .borderRadius(Dim.radiusS)
+        .onChange((v: string) => {
+          this.renameText = v;
+        })
+      Row({ space: 12 }) {
+        Button(I18n.translate('cancel'))
+          .fontSize(Fonts.body2())
+          .backgroundColor($r('app.color.component_normal'))
+          .fontColor($r('app.color.text_primary'))
+          .layoutWeight(1)
+          .onClick(() => {
+            this.showRenameSheet = false;
+          })
+        Button(I18n.translate('confirm'))
+          .fontSize(Fonts.body2())
+          .backgroundColor($r('app.color.brand'))
+          .fontColor($r('app.color.text_primary_contrary'))
+          .layoutWeight(1)
+          .onClick(() => {
+            this.store.renameSession(this.renamingId, this.renameText);
+            this.showRenameSheet = false;
+          })
+      }
+      .width('100%')
+    }
+    .padding({ left: 24, right: 24, top: 8, bottom: 24 })
+    .width('100%')
+    .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+    .backgroundColor($r('app.color.blur_dialog'))
   }
 
   private groups(): SiderGroup[] {
@@ -169,31 +174,48 @@ export struct Sider {
     return groups.filter((g) => g.items.length > 0);
   }
 
-  private showItemMenu(s: Session): void {
-    const buttons: Array<promptAction.Button> = [];
-    const bRename: promptAction.Button = { text: I18n.translate('sessionItemMenuRenameOption'), color: '#0A59F7' };
-    const bDelete: promptAction.Button = { text: I18n.translate('delete'), color: '#E84026' };
-    const bCancel: promptAction.Button = { text: I18n.translate('cancel'), color: '#66000000' };
-    buttons.push(bRename);
-    buttons.push(bDelete);
-    buttons.push(bCancel);
-    const options: promptAction.ShowDialogOptions = {
-      title: this.store.displayTitle(s),
-      buttons: buttons,
-      alignment: DialogAlignment.Center,
+  /** 会话 ⋯ 菜单（鸿蒙 bindMenu，替代网页式按钮对话框） */
+  private sessionMenu(s: Session): MenuElement[] {
+    const rename: MenuElement = {
+      value: I18n.translate('sessionItemMenuRenameOption'),
+      icon: $r('app.media.ic_public_edit'),
+      action: () => {
+        this.openRename(s);
+      },
     };
-    try {
-      promptAction.showDialog(options).then((result) => {
-        if (result.index === 0) {
-          this.renameText = this.store.displayTitle(s);
-          this.renamingId = s.id;
-        } else if (result.index === 1) {
-          this.confirmDelete(s);
-        }
-      });
-    } catch (err) {
-      // 忽略
-    }
+    const del: MenuElement = {
+      value: I18n.translate('delete'),
+      icon: $r('app.media.ic_public_delete'),
+      action: () => {
+        this.confirmDelete(s);
+      },
+    };
+    const exportMd: MenuElement = {
+      value: I18n.translate('exportMd'),
+      icon: $r('app.media.ic_public_share'),
+      action: () => {
+        MarkdownExport.exportSession(s.id).then((ok: boolean) => {
+          if (ok) {
+            this.getUIContext().getPromptAction()
+              .showToast({ message: I18n.translate('exportMdDone'), duration: 1500 });
+          }
+        }).catch(() => {
+          this.getUIContext().getPromptAction()
+            .showToast({ message: I18n.translate('exportMdFailed'), duration: 2000 });
+        });
+      },
+    };
+    const menu: MenuElement[] = [];
+    menu.push(rename);
+    menu.push(exportMd);
+    menu.push(del);
+    return menu;
+  }
+
+  private openRename(s: Session): void {
+    this.renameText = this.store.displayTitle(s);
+    this.renamingId = s.id;
+    this.showRenameSheet = true;
   }
 
   private confirmDelete(s: Session): void {
@@ -209,7 +231,7 @@ export struct Sider {
       alignment: DialogAlignment.Center,
     };
     try {
-      promptAction.showDialog(options).then((result) => {
+      this.getUIContext().getPromptAction().showDialog(options).then((result) => {
         if (result.index === 1) {
           this.store.deleteSession(s.id);
         }

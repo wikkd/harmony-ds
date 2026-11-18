@@ -1,3 +1,4 @@
+import { Fonts } from '../../common/Fonts';
 import { I18n } from '../../common/I18n';
 import { Dim } from '../../common/DesignTokens';
 
@@ -31,11 +32,11 @@ export struct PrivacyPolicyPage {
   section(title: string, body: string) {
     Column({ space: 8 }) {
       Text(title)
-        .fontSize($r('app.float.font_headline9'))
+        .fontSize(Fonts.headline9())
         .fontWeight(FontWeight.Medium)
         .fontColor($r('app.color.text_primary'))
       Text(body)
-        .fontSize($r('app.float.font_body2'))
+        .fontSize(Fonts.body2())
         .lineHeight(22)
         .fontColor($r('app.color.text_secondary'))
     }

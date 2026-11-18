@@ -17,13 +17,19 @@ import {
 import { ChatStore } from './ChatStore';
 import { LatestReminder } from './LatestReminder';
 import { Logger } from '../../common/Logger';
+import { NotifyService } from '../notify/NotifyService';
+import { LiveViewService } from '../notify/LiveViewService';
+import { I18n } from '../../common/I18n';
+import { ChatDb } from '../db/ChatDb';
 import { SettingsStore } from '../../prefs/SettingsStore';
 import { KeyVault } from '../../prefs/KeyVault';
 import { AppContextHolder } from '../../common/AppContextHolder';
 import { AttachmentService } from '../attachments/AttachmentService';
 import { FileAttachment } from '../../model/ChatTypes';
+import { ModelInfo } from '../../model/ModelInfo';
 
 const TAG: string = 'ReplyEngine';
+const NL2: string = String.fromCharCode(10) + String.fromCharCode(10);
 /** 对齐原项目 store.ts */
 const SYSTEM_PROMPT: string = '该助手为DeepSeek，由深度求索公司创造。';
 
@@ -83,6 +89,14 @@ export class ReplyEngine {
       return;
     }
     const settings = SettingsStore.get();
+    if (settings.customModel) {
+      // 外部模型不支持 Files API
+      files = [];
+      // 外部模型无 title 生成，本地回退：取首条提问截断
+      if (session.title === '') {
+        store.renameSession(sessionId, question.trim().slice(0, 24));
+      }
+    }
 
     // 挂到当前可见链尾部
     const visible = store.visible;
@@ -116,7 +130,8 @@ export class ReplyEngine {
 
     const body = ReplyEngine.buildRequestBody(
       store.visible, userMsg, null, reply.thinking, reply.search,
-      session.title === '', latestReminder, userMsg.files.length > 0);
+      session.title === '', latestReminder, userMsg.files.length > 0,
+      session.compactAnchorId, session.compactSummary);
 
     const indexes = new Map<number, number>();
     ReplyEngine.blockIndexes.set(sessionId, indexes);
@@ -132,6 +147,7 @@ export class ReplyEngine {
       },
     }, userMsg.files.length > 0);
     ReplyEngine.aborters.set(sessionId, aborter);
+    LiveViewService.replyStarted(store.displayTitle(session)).catch(() => {});
   }
 
   /** 上传失败收尾：请求未发出，按 upload 错误归类 */
@@ -143,6 +159,7 @@ export class ReplyEngine {
     if (store.streamingSessionId === sessionId) {
       store.setStreaming(null);
     }
+    LiveViewService.replyEnded().catch(() => {});
     const re = new ReplyError();
     re.kind = 'upload';
     re.message = err.message;
@@ -192,7 +209,8 @@ export class ReplyEngine {
 
     const body = ReplyEngine.buildRequestBody(
       store.visible, userMsg as UserMessage, null, reply.thinking, reply.search,
-      session.title === '', latestReminder, (userMsg as UserMessage).files.length > 0);
+      session.title === '', latestReminder, (userMsg as UserMessage).files.length > 0,
+      session.compactAnchorId, session.compactSummary);
 
     const indexes = new Map<number, number>();
     ReplyEngine.blockIndexes.set(sessionId, indexes);
@@ -208,6 +226,7 @@ export class ReplyEngine {
       },
     }, (userMsg as UserMessage).files.length > 0);
     ReplyEngine.aborters.set(sessionId, aborter);
+    LiveViewService.replyStarted(store.displayTitle(session)).catch(() => {});
   }
 
   /** 编辑重发：在原用户消息的父节点下新建用户分支并发送 */
@@ -228,6 +247,9 @@ export class ReplyEngine {
     }
     const parentId = (original as UserMessage).parentId;
     const settings = SettingsStore.get();
+    if (settings.customModel) {
+      files = [];
+    }
 
     const userMsg = store.appendUserMessage(session, newText, parentId);
     userMsg.files = files;
@@ -265,6 +287,7 @@ export class ReplyEngine {
       },
     }, userMsg.files.length > 0);
     ReplyEngine.aborters.set(sessionId, aborter);
+    LiveViewService.replyStarted(store.displayTitle(session)).catch(() => {});
   }
 
   /** M3 的 regenerate/continue 复用这里 */
@@ -276,18 +299,34 @@ export class ReplyEngine {
     search: boolean,
     needTitle: boolean,
     latestReminder: string,
-    withFiles: boolean
+    withFiles: boolean,
+    compactAnchorId: string = '',
+    compactSummary: string = ''
   ): string {
+    const settings = SettingsStore.get();
+    const custom = settings.customModel;
     const messages: Array<Object> = [];
     let previousReminder = '';
     const appendReminder = (reminder: string): void => {
+      if (custom) {
+        // latest_reminder 为 DeepSeek 专有 role，外部模型不发送
+        return;
+      }
       if (reminder !== '' && reminder !== previousReminder) {
         const m: Record<string, Object> = { 'role': 'latest_reminder', 'content': reminder };
         messages.push(m);
         previousReminder = reminder;
       }
     };
+    let anchorPassed = compactAnchorId === '';
     for (const round of ReplyEngine.getContextRounds(history)) {
+      if (!anchorPassed) {
+        // 压缩点（含）之前的轮次已进入摘要
+        if (round.user.id === compactAnchorId) {
+          anchorPassed = true;
+        }
+        continue;
+      }
       if (round.user.content === '' ) {
         continue;
       }
@@ -312,6 +351,30 @@ export class ReplyEngine {
       }
     }
 
+    const body: Record<string, Object> = {
+      'model': settings.model,
+      'messages': messages,
+      'stream': true,
+    };
+    const persona = settings.personalization;
+    const summaryText = compactSummary === '' ? '' :
+      I18n.translate('compactSystemLabel') + NL2 + compactSummary;
+    if (custom) {
+      // 外部模型：仅标准 Anthropic 字段（max_tokens 协议必填）；个性化/摘要作为 system
+      body['max_tokens'] = ModelInfo.EXTERNAL_MAX_TOKENS;
+      const sysParts: string[] = [];
+      if (persona !== '') {
+        sysParts.push(persona);
+      }
+      if (summaryText !== '') {
+        sysParts.push(summaryText);
+      }
+      if (sysParts.length > 0) {
+        body['system'] = sysParts.join(NL2);
+      }
+      return JSON.stringify(body);
+    }
+
     const tools: Array<Object> = [];
     const readUrl: Record<string, Object> = {
       'type': 'deepseek_read_url', 'name': 'deepseek_read_url',
@@ -328,23 +391,89 @@ export class ReplyEngine {
       'type': thinking ? 'enabled' : 'disabled',
     };
     const safetyObj: Record<string, Object> = { 'level': 'high' };
-    const body: Record<string, Object> = {
-      'model': 'deepseek-flash',
-      'system': SYSTEM_PROMPT,
-      'messages': messages,
-      'thinking': thinkingObj,
-      'safety_check': safetyObj,
-      'tools': tools,
-      'stream': true,
-    };
+    let sys = persona === '' ? SYSTEM_PROMPT : `${SYSTEM_PROMPT}
+
+${persona}`;
+    if (summaryText !== '') {
+      sys = sys + NL2 + summaryText;
+    }
+    body['system'] = sys;
+    body['thinking'] = thinkingObj;
+    body['safety_check'] = safetyObj;
+    body['tools'] = tools;
     if (needTitle) {
       const titleObj: Record<string, Object> = { 'enabled': true };
       body['title'] = titleObj;
+    }
+    if (thinking) {
+      // 思考强度（官方 output_config.effort；thinking.budget_tokens 会被服务端忽略）
+      const effortObj: Record<string, Object> = { 'effort': settings.thinkingEffort };
+      body['output_config'] = effortObj;
     }
     return JSON.stringify(body);
   }
 
   /** 历史中「提问 + 有回答」成对的轮次（M2 线性版） */
+  /**
+   * compact：把当前可见链压缩为摘要存入会话（压缩点=最后一条可见消息）。
+   * 返回 'ok' | 'too_short'；请求失败抛 ApiError。
+   */
+  static async compact(sessionId: string): Promise<string> {
+    const store = ChatStore.get();
+    const session = store.sessionById(sessionId);
+    if (session === null || store.streamingSessionId !== null) {
+      return 'too_short';
+    }
+    const visible = store.visible;
+    const rounds = ReplyEngine.getContextRounds(visible);
+    if (rounds.length < 2) {
+      return 'too_short';
+    }
+    const apiKey = await KeyVault.load(AppContextHolder.get());
+    if (apiKey === null || apiKey === '') {
+      throw new ApiError('network', 'no api key');
+    }
+    const settings = SettingsStore.get();
+    const custom = settings.customModel;
+    const messages: Array<Object> = [];
+    for (const round of rounds) {
+      const um: Record<string, Object> = { 'role': 'user', 'content': round.user.content };
+      messages.push(um);
+      const am: Record<string, Object> = { 'role': 'assistant', 'content': ReplyEngine.assistantTextParam(round.reply) };
+      messages.push(am);
+    }
+    const instr: Record<string, Object> = { 'role': 'user', 'content': I18n.translate('compactInstruction') };
+    messages.push(instr);
+    const body: Record<string, Object> = {
+      'model': settings.model,
+      'messages': messages,
+      'stream': false,
+    };
+    if (custom) {
+      body['max_tokens'] = ModelInfo.EXTERNAL_MAX_TOKENS;
+      if (settings.personalization !== '') {
+        body['system'] = settings.personalization;
+      }
+    } else {
+      body['system'] = settings.personalization === '' ?
+        SYSTEM_PROMPT : SYSTEM_PROMPT + NL2 + settings.personalization;
+      const thinkingObj: Record<string, Object> = { 'type': 'disabled' };
+      body['thinking'] = thinkingObj;
+      const safetyObj: Record<string, Object> = { 'level': 'high' };
+      body['safety_check'] = safetyObj;
+    }
+    const summary = await ApiClient.completeOnce(apiKey, JSON.stringify(body));
+    if (summary === '') {
+      throw new ApiError('protocol', 'empty summary');
+    }
+    const lastMsg = visible[visible.length - 1];
+    session.compactAnchorId = lastMsg.id;
+    session.compactSummary = summary;
+    session.updatedAt = Date.now();
+    await ChatDb.updateSessionMeta(session);
+    return 'ok';
+  }
+
   private static getContextRounds(history: Message[]): Array<UserAssistantPair> {
     const rounds: Array<UserAssistantPair> = [];
     for (let i = 0; i + 1 < history.length; i++) {
@@ -559,6 +688,8 @@ export class ReplyEngine {
       ReplyEngine.settle(reply, 'done', Date.now(), null);
       store.refreshVisible(session);
       store.persistMessage(session, reply).catch(() => {});
+      NotifyService.replySettled(store.displayTitle(session), false).catch(() => {});
+      LiveViewService.replyEnded().catch(() => {});
     }
   }
   private static finishWithError(sessionId: string, err: ApiError): void {
@@ -585,6 +716,8 @@ export class ReplyEngine {
       ReplyEngine.settle(reply, 'error', Date.now(), re);
       store.refreshVisible(session);
       store.persistMessage(session, reply).catch(() => {});
+      NotifyService.replySettled(store.displayTitle(session), true).catch(() => {});
+      LiveViewService.replyEnded().catch(() => {});
     }
   }
 

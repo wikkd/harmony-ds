@@ -46,7 +46,9 @@ export class ChatDb {
         title TEXT NOT NULL DEFAULT '',
         createdAt INTEGER NOT NULL,
         updatedAt INTEGER NOT NULL,
-        rootMessageId TEXT
+        rootMessageId TEXT,
+        compactAnchorId TEXT,
+        compactSummary TEXT
       )`);
     await store.executeSql(
       `CREATE TABLE IF NOT EXISTS messages (
@@ -59,6 +61,25 @@ export class ChatDb {
         payloadJson TEXT NOT NULL
       )`);
     await store.executeSql(`CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(sessionId, seq)`);
+    // 迁移：v1 库补 compact 两列（列已存在则忽略）
+    let version = 0;
+    const vrs = await store.querySql('PRAGMA user_version');
+    if (vrs.goToFirstRow()) {
+      version = vrs.getLong(0);
+    }
+    vrs.close();
+    if (version < 2) {
+      try {
+        await store.executeSql('ALTER TABLE sessions ADD COLUMN compactAnchorId TEXT');
+      } catch (e) {
+        // 列已存在
+      }
+      try {
+        await store.executeSql('ALTER TABLE sessions ADD COLUMN compactSummary TEXT');
+      } catch (e) {
+        // 列已存在
+      }
+    }
     await store.executeSql(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     ChatDb.store = store;
     Logger.info(TAG, 'db ready');
@@ -90,6 +111,8 @@ export class ChatDb {
     const bucket: relationalStore.ValuesBucket = {
       'title': s.title,
       'updatedAt': s.updatedAt,
+      'compactAnchorId': s.compactAnchorId,
+      'compactSummary': s.compactSummary,
     };
     const predicates = new relationalStore.RdbPredicates('sessions');
     predicates.equalTo('id', s.id);
@@ -113,6 +136,22 @@ export class ChatDb {
   }
 
   /** 会话摘要列表（updatedAt 倒序），不含消息 */
+  /** 全部 assistant 消息 payloadJson（用量统计用） */
+  static async assistantPayloads(): Promise<string[]> {
+    if (ChatDb.store === undefined) {
+      return [];
+    }
+    const p = new relationalStore.RdbPredicates('messages');
+    p.equalTo('role', 'assistant');
+    const rs = await ChatDb.store.query(p, ['payloadJson']);
+    const out: string[] = [];
+    while (rs.goToNextRow()) {
+      out.push(rs.getString(rs.getColumnIndex('payloadJson')));
+    }
+    rs.close();
+    return out;
+  }
+
   static async loadSessionList(): Promise<Session[]> {
     const db = ChatDb.db();
     const p = new relationalStore.RdbPredicates('sessions');
@@ -125,6 +164,10 @@ export class ChatDb {
       s.updatedAt = rs.getLong(rs.getColumnIndex('updatedAt'));
       const root = rs.getString(rs.getColumnIndex('rootMessageId'));
       s.rootMessageId = root === null || root === '' ? null : root;
+      const anchor = rs.getString(rs.getColumnIndex('compactAnchorId'));
+      s.compactAnchorId = anchor === null ? '' : anchor;
+      const summary = rs.getString(rs.getColumnIndex('compactSummary'));
+      s.compactSummary = summary === null ? '' : summary;
       out.push(s);
     }
     rs.close();

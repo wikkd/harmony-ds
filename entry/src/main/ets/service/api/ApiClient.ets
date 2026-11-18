@@ -107,7 +107,7 @@ export class ApiClient {
       }
       const bytes = new Uint8Array(chunk);
       if (sseMode) {
-        const text = utf8.decodeWithStream(bytes, { stream: true });
+        const text = utf8.decodeToString(bytes, { stream: true });
         const events: ServerSentEvent[] = decoder.push(text);
         for (const ev of events) {
           if (ev.event === 'error') {
@@ -140,7 +140,7 @@ export class ApiClient {
         }
       } else {
         // 非 SSE（错误响应体）累积原文
-        errorBody += utf8.decodeWithStream(bytes, { stream: true });
+        errorBody += utf8.decodeToString(bytes, { stream: true });
       }
     });
 
@@ -168,7 +168,7 @@ export class ApiClient {
         return;
       }
       // 收尾：派发残尾事件
-      const tail: ServerSentEvent[] = decoder.push(utf8.decodeWithStream(new Uint8Array(0)));
+      const tail: ServerSentEvent[] = decoder.push(utf8.decodeToString(new Uint8Array(0)));
       const tailEnd: ServerSentEvent[] = decoder.end();
       for (const evEnd of tailEnd) {
         tail.push(evEnd);
@@ -250,6 +250,53 @@ export class ApiClient {
     })();
 
     return aborter;
+  }
+
+  /** 非流式一次性补全（compact 摘要等）：返回全部 text 块拼接 */
+  static async completeOnce(apiKey: string, bodyJson: string): Promise<string> {
+    const req = http.createHttp();
+    try {
+      const options: http.HttpRequestOptions = {
+        method: http.RequestMethod.POST,
+        header: {
+          'x-api-key': apiKey,
+          'Content-Type': 'application/json',
+        },
+        extraData: bodyJson,
+        expectDataType: http.HttpDataType.STRING,
+        connectTimeout: CONNECT_TIMEOUT_MS,
+        readTimeout: 300000,
+      };
+      const resp = await req.request(ApiClient.anthropicUrl('/messages'), options);
+      const text = resp.result as string;
+      if (resp.responseCode < 200 || resp.responseCode >= 300) {
+        throw new ApiError('http', text, resp.responseCode);
+      }
+      const parsed = JSON.parse(text) as Record<string, Object>;
+      const content = parsed['content'];
+      if (!Array.isArray(content)) {
+        throw new ApiError('protocol', text);
+      }
+      let out = '';
+      for (const b of content as Array<Object>) {
+        const block = b as Record<string, Object>;
+        if (block['type'] === 'text' && typeof block['text'] === 'string') {
+          out += block['text'] as string;
+        }
+      }
+      return out.trim();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        throw err as ApiError;
+      }
+      throw new ApiError('network', `${JSON.stringify(err)}`);
+    } finally {
+      try {
+        req.destroy();
+      } catch (e) {
+        // 忽略
+      }
+    }
   }
 
   /** GET /models 校验 API Key（不产生费用） */

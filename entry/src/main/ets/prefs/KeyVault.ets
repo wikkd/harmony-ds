@@ -13,7 +13,7 @@ function strToBytes(s: string): Uint8Array {
 }
 
 function bytesToStr(b: Uint8Array): string {
-  return util.TextDecoder.create('utf-8').decodeWithStream(b);
+  return util.TextDecoder.create('utf-8').decodeToString(b);
 }
 
 /**

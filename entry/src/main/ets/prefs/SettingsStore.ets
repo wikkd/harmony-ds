@@ -2,7 +2,8 @@ import { preferences } from '@kit.ArkData';
 import { Context } from '@kit.AbilityKit';
 import { i18n } from '@kit.LocalizationKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { Locale, ThemePreference, TtsVoice, UserLocation } from '../model/SettingsTypes';
+import { Locale, ThemePreference, ThinkingEffort, TtsVoice, UserLocation } from '../model/SettingsTypes';
+import { ModelInfo } from '../model/ModelInfo';
 import { Logger } from '../common/Logger';
 
 const TAG: string = 'SettingsStore';
@@ -15,6 +16,23 @@ const KEY_LOCATION: string = 'chat-demo:location';
 const KEY_THEME: string = 'chat-demo:theme-preference';
 const KEY_TTS_VOICE: string = 'chat-demo:tts-voice';
 const KEY_THINKING: string = 'chat-demo:thinking';
+const KEY_MODEL: string = 'chat-demo:model';
+const KEY_PERSONALIZATION: string = 'chat-demo:personalization';
+const KEY_FONT_SCALE: string = 'chat-demo:font-scale';
+const KEY_FONT_FAMILY: string = 'chat-demo:font-family';
+const KEY_NOTIFY_ON_REPLY: string = 'chat-demo:notify-on-reply';
+const KEY_LIVE_VIEW: string = 'chat-demo:live-view';
+
+/** 字号档位 → 缩放系数 */
+const FONT_SCALES: Record<string, number> = {
+  'small': 0.9,
+  'standard': 1.0,
+  'large': 1.15,
+  'xl': 1.3,
+};
+/** 允许的字体族（'' = 跟随系统） */
+const FONT_FAMILIES: string[] = ['', 'sans-serif', 'serif', 'monospace'];
+const KEY_THINKING_EFFORT: string = 'chat-demo:thinking-effort';
 const KEY_SEARCH: string = 'chat-demo:search';
 const KEY_SIDER_COLLAPSED: string = 'chat-demo:sider-collapsed';
 const KEY_ONBOARDED: string = 'chat-demo:onboarded';
@@ -28,10 +46,24 @@ export const DEFAULT_API_ORIGIN: string = 'https://api.deepseek.com';
 @ObservedV2
 export class SettingsStore {
   @Trace apiOrigin: string = DEFAULT_API_ORIGIN;
+  /** 模型 ID：内置 deepseek 模型走完整协议；自定义模型走标准 Anthropic 兼容协议 */
+  @Trace model: string = ModelInfo.NAME;
   @Trace locale: Locale = 'zh-CN';
   @Trace themePreference: ThemePreference = 'system';
   @Trace ttsVoice: TtsVoice = 'stella';
   @Trace thinking: boolean = false;
+  /** 思考强度，深度思考开启时随请求发送 output_config.effort */
+  @Trace thinkingEffort: ThinkingEffort = 'high';
+  /** 个性化提示词：用户自定义人格与回复要求，注入所有新回复的 system */
+  @Trace personalization: string = '';
+  /** 字号档位：small | standard | large | xl */
+  @Trace fontScale: string = 'standard';
+  /** 字体族：'' 跟随系统 | sans-serif | serif | monospace */
+  @Trace fontFamily: string = '';
+  /** 回复完成/失败时（应用在后台）发系统通知 */
+  @Trace notifyOnReply: boolean = false;
+  /** 流式回复期间显示实况窗（灵动岛）胶囊 */
+  @Trace liveViewOnReply: boolean = false;
   @Trace search: boolean = false;
   @Trace siderCollapsed: boolean = false;
   @Trace location: UserLocation | null = null;
@@ -56,6 +88,8 @@ export class SettingsStore {
     try {
       this.store = preferences.getPreferencesSync(context, { name: PREF_NAME });
       this.apiOrigin = this.store.getSync(KEY_API_ORIGIN, DEFAULT_API_ORIGIN) as string;
+      const savedModel = (this.store.getSync(KEY_MODEL, ModelInfo.NAME) as string).trim();
+      this.model = savedModel === '' ? ModelInfo.NAME : savedModel;
       const savedLocale = this.store.getSync(KEY_LOCALE, '') as string;
       if (savedLocale === 'zh-CN' || savedLocale === 'en-US') {
         this.locale = savedLocale;
@@ -71,6 +105,15 @@ export class SettingsStore {
       this.themePreference = (this.store.getSync(KEY_THEME, 'system') as ThemePreference);
       this.ttsVoice = (this.store.getSync(KEY_TTS_VOICE, 'stella') as TtsVoice) === 'tide' ? 'tide' : 'stella';
       this.thinking = this.store.getSync(KEY_THINKING, false) as boolean;
+      const savedEffort = this.store.getSync(KEY_THINKING_EFFORT, 'high') as string;
+      this.thinkingEffort = (savedEffort === 'low' || savedEffort === 'max') ? savedEffort : 'high';
+      this.personalization = (this.store.getSync(KEY_PERSONALIZATION, '') as string).trim();
+      const savedScale = this.store.getSync(KEY_FONT_SCALE, 'standard') as string;
+      this.fontScale = FONT_SCALES[savedScale] !== undefined ? savedScale : 'standard';
+      const savedFamily = this.store.getSync(KEY_FONT_FAMILY, '') as string;
+      this.fontFamily = FONT_FAMILIES.indexOf(savedFamily) >= 0 ? savedFamily : '';
+      this.notifyOnReply = this.store.getSync(KEY_NOTIFY_ON_REPLY, false) as boolean;
+      this.liveViewOnReply = this.store.getSync(KEY_LIVE_VIEW, false) as boolean;
       this.search = this.store.getSync(KEY_SEARCH, false) as boolean;
       this.siderCollapsed = this.store.getSync(KEY_SIDER_COLLAPSED, false) as boolean;
       this.onboarded = this.store.getSync(KEY_ONBOARDED, false) as boolean;
@@ -111,6 +154,17 @@ export class SettingsStore {
     this.put(KEY_API_ORIGIN, trimmed);
   }
 
+  setModel(model: string): void {
+    const trimmed = model.trim();
+    this.model = trimmed === '' ? ModelInfo.NAME : trimmed;
+    this.put(KEY_MODEL, this.model);
+  }
+
+  /** 是否为外部自定义模型（外部模型不发 DeepSeek 专有字段/工具/语音/附件） */
+  get customModel(): boolean {
+    return !ModelInfo.isBuiltin(this.model);
+  }
+
   setLocale(locale: Locale): void {
     this.locale = locale;
     this.put(KEY_LOCALE, locale);
@@ -134,6 +188,42 @@ export class SettingsStore {
   setSearch(on: boolean): void {
     this.search = on;
     this.put(KEY_SEARCH, on);
+  }
+
+  setThinkingEffort(effort: ThinkingEffort): void {
+    this.thinkingEffort = effort;
+    this.put(KEY_THINKING_EFFORT, effort);
+  }
+
+  setPersonalization(text: string): void {
+    this.personalization = text.trim();
+    this.put(KEY_PERSONALIZATION, this.personalization);
+  }
+
+  setFontScale(scale: string): void {
+    this.fontScale = FONT_SCALES[scale] !== undefined ? scale : 'standard';
+    this.put(KEY_FONT_SCALE, this.fontScale);
+  }
+
+  setFontFamily(family: string): void {
+    this.fontFamily = FONT_FAMILIES.indexOf(family) >= 0 ? family : '';
+    this.put(KEY_FONT_FAMILY, this.fontFamily);
+  }
+
+  setNotifyOnReply(on: boolean): void {
+    this.notifyOnReply = on;
+    this.put(KEY_NOTIFY_ON_REPLY, on);
+  }
+
+  setLiveViewOnReply(on: boolean): void {
+    this.liveViewOnReply = on;
+    this.put(KEY_LIVE_VIEW, on);
+  }
+
+  /** 字号缩放系数（Fonts 助手读取） */
+  fontScaleValue(): number {
+    const v = FONT_SCALES[this.fontScale];
+    return v === undefined ? 1.0 : v;
   }
 
   setSiderCollapsed(on: boolean): void {

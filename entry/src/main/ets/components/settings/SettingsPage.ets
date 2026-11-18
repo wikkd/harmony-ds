@@ -1,3 +1,4 @@
+import { Fonts } from '../../common/Fonts';
 import { I18n } from '../../common/I18n';
 import { Dim } from '../../common/DesignTokens';
 import { SettingsStore } from '../../prefs/SettingsStore';
@@ -8,7 +9,9 @@ import { AppContextHolder } from '../../common/AppContextHolder';
 import { ThemeHelper } from '../../common/ThemeHelper';
 import { ChatStore } from '../../service/chat/ChatStore';
 import { HistoryArchive, ArchiveError } from '../../service/history/HistoryArchive';
-import { UserLocation } from '../../model/SettingsTypes';
+import { NotifyService } from '../../service/notify/NotifyService';
+import { LiveViewService } from '../../service/notify/LiveViewService';
+import { UserLocation, ThemePreference, ThinkingEffort } from '../../model/SettingsTypes';
 import { promptAction } from '@kit.ArkUI';
 import { picker } from '@kit.CoreFileKit';
 import fs from '@ohos.file.fs';
@@ -25,13 +28,14 @@ const PROVINCES: string[] = [
 /** 完整设置页（List+SubHeader 鸿蒙布局） */
 @ComponentV2
 export struct SettingsPage {
-  pathStack: NavPathStack = new NavPathStack();
+  @Param pathStack: NavPathStack = new NavPathStack();
   settings: SettingsStore = SettingsStore.get();
   store: ChatStore = ChatStore.get();
   @Local apiKey: string = '';
   @Local verifyState: 'idle' | 'verifying' | 'ok' | 'fail' = 'idle';
   @Local verifyMsg: string = '';
-  @Local provincePicker: boolean = false;
+  @Local modelInput: string = '';
+  @Local originInput: string = '';
 
   aboutToAppear(): void {
     KeyVault.load(AppContextHolder.get()).then((k: string | null) => {
@@ -40,6 +44,8 @@ export struct SettingsPage {
         this.verifyState = 'ok';
       }
     }).catch(() => {});
+    this.modelInput = this.settings.model;
+    this.originInput = this.settings.apiOrigin;
   }
 
   build() {
@@ -48,7 +54,7 @@ export struct SettingsPage {
         Scroll() {
           Column({ space: 12 }) {
             // ---------- API Key ----------
-            this.subHeader(I18n.translate('apiKeyEdit'))
+            this.subHeader('apiKeyEdit')
             Column({ space: 8 }) {
               Row({ space: 8 }) {
                 TextInput({
@@ -56,7 +62,7 @@ export struct SettingsPage {
                   placeholder: I18n.translate('apiKeyPlaceholder'),
                 })
                   .type(InputType.Password)
-                  .fontSize($r('app.float.font_body2'))
+                  .fontSize(Fonts.body2())
                   .fontColor($r('app.color.text_primary'))
                   .placeholderColor($r('app.color.text_tertiary'))
                   .backgroundColor($r('app.color.text_field_sub_bg'))
@@ -67,7 +73,7 @@ export struct SettingsPage {
                     this.verifyState = 'idle';
                   })
                 Button(this.verifyState === 'verifying' ? I18n.translate('apiKeyVerifying') : I18n.translate('confirm'))
-                  .fontSize($r('app.float.font_body2'))
+                  .fontSize(Fonts.body2())
                   .backgroundColor($r('app.color.brand'))
                   .fontColor($r('app.color.text_primary_contrary'))
                   .enabled(this.verifyState !== 'verifying' && this.apiKey.trim().length > 0)
@@ -79,12 +85,12 @@ export struct SettingsPage {
 
               if (this.verifyState === 'ok') {
                 Text(I18n.translate('apiKeyStart'))
-                  .fontSize($r('app.float.font_body3'))
+                  .fontSize(Fonts.body3())
                   .fontColor($r('app.color.success'))
                   .width('100%')
               } else if (this.verifyState === 'fail') {
                 Text(this.verifyMsg)
-                  .fontSize($r('app.float.font_body3'))
+                  .fontSize(Fonts.body3())
                   .fontColor($r('app.color.warning'))
                   .width('100%')
               }
@@ -94,118 +100,268 @@ export struct SettingsPage {
             .borderRadius(Dim.radiusM)
             .width('100%')
 
-            // ---------- 通用 ----------
-            this.subHeader(I18n.translate('settingDialogAsideGeneralOptionLabel'))
-
-            this.row(I18n.translate('settingsLocalePreference'), this.localeLabel(), (): void => {
-              this.settings.setLocale(this.settings.locale === 'zh-CN' ? 'en-US' : 'zh-CN');
-            })
-
-            this.row(I18n.translate('avatarMenuSettingsDialogThemeItemLabel'), this.themeLabel(), (): void => {
-              if (this.settings.themePreference === 'light') {
-                this.settings.setThemePreference('dark');
-              } else if (this.settings.themePreference === 'dark') {
-                this.settings.setThemePreference('system');
-              } else {
-                this.settings.setThemePreference('light');
-              }
-              this.applyTheme();
-            })
-
-            this.row(I18n.translate('settingsLocation'), this.locationLabel(), (): void => {
-              this.provincePicker = !this.provincePicker;
-            })
-
-            if (this.provincePicker) {
-              Column() {
-                Text(I18n.translate('settingsLocationProvince'))
-                  .fontSize($r('app.float.font_body3'))
+            // ---------- 模型与服务 ----------
+            this.subHeader('modelAndService')
+            Column({ space: 8 }) {
+              Column({ space: 4 }) {
+                Text(I18n.translate('modelLabel'))
+                  .fontSize(Fonts.caption())
                   .fontColor($r('app.color.text_tertiary'))
                   .width('100%')
-                // 省份网格
-                Flex({ wrap: FlexWrap.Wrap }) {
-                  ForEach(PROVINCES, (p: string) => {
-                    Text(p)
-                      .fontSize($r('app.float.font_body3'))
-                      .fontColor($r('app.color.text_primary'))
-                      .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-                      .margin(4)
-                      .backgroundColor($r('app.color.component_normal'))
-                      .borderRadius(Dim.radiusS)
-                      .onClick(() => {
-                        const loc = new UserLocation();
-                        loc.region = 'CN';
-                        loc.province = p;
-                        this.settings.setLocation(loc);
-                        this.provincePicker = false;
-                      })
-                  }, (p: string) => p)
-                }
-                .width('100%')
-                Text(I18n.translate('cancel'))
-                  .fontSize($r('app.float.font_body3'))
-                  .fontColor($r('app.color.brand_activated'))
-                  .padding(6)
-                  .onClick(() => {
-                    this.settings.setLocation(null);
-                    this.provincePicker = false;
+                TextInput({
+                  text: this.modelInput,
+                  placeholder: I18n.translate('modelPlaceholder'),
+                })
+                  .fontSize(Fonts.body2())
+                  .fontColor($r('app.color.text_primary'))
+                  .placeholderColor($r('app.color.text_tertiary'))
+                  .backgroundColor($r('app.color.text_field_sub_bg'))
+                  .borderRadius(Dim.radiusS)
+                  .onChange((v: string) => {
+                    this.modelInput = v;
                   })
               }
-              .padding(Dim.cardPadding)
-              .backgroundColor($r('app.color.card_bg'))
-              .borderRadius(Dim.radiusM)
               .width('100%')
+
+              Column({ space: 4 }) {
+                Text(I18n.translate('serviceAddressLabel'))
+                  .fontSize(Fonts.caption())
+                  .fontColor($r('app.color.text_tertiary'))
+                  .width('100%')
+                TextInput({
+                  text: this.originInput,
+                  placeholder: I18n.translate('serviceAddressPlaceholder'),
+                })
+                  .fontSize(Fonts.body2())
+                  .fontColor($r('app.color.text_primary'))
+                  .placeholderColor($r('app.color.text_tertiary'))
+                  .backgroundColor($r('app.color.text_field_sub_bg'))
+                  .borderRadius(Dim.radiusS)
+                  .onChange((v: string) => {
+                    this.originInput = v;
+                  })
+              }
+              .width('100%')
+
+              Button(I18n.translate('confirm'))
+                .fontSize(Fonts.body2())
+                .backgroundColor($r('app.color.brand'))
+                .fontColor($r('app.color.text_primary_contrary'))
+                .width('100%')
+                .onClick(() => {
+                  this.settings.setModel(this.modelInput);
+                  this.settings.setApiOrigin(this.originInput);
+                  this.getUIContext().getPromptAction()
+                    .showToast({ message: I18n.translate('settingsSaved'), duration: 1500 });
+                })
+
+              Text(I18n.translate('customModelHint'))
+                .fontSize(Fonts.caption())
+                .fontColor($r('app.color.text_tertiary'))
+                .width('100%')
             }
+            .padding(Dim.cardPadding)
+            .backgroundColor($r('app.color.card_bg'))
+            .borderRadius(Dim.radiusM)
+            .width('100%')
 
-            this.row(I18n.translate('thinkingSwitch'), this.settings.thinking ? '✓' : '', (): void => {
-              this.settings.setThinking(!this.settings.thinking);
-            })
+            // ---------- 外观 ----------
+            this.subHeader('settingsGroupAppearance')
+            Column() {
+              this.selectRow('fontSizeLabel', ['fontOptSmall', 'fontOptStandard', 'fontOptLarge', 'fontOptXl'],
+                (): number => {
+                  const idx: string[] = ['small', 'standard', 'large', 'xl'];
+                  return idx.indexOf(this.settings.fontScale);
+                },
+                (idx: number): void => {
+                  const scales: string[] = ['small', 'standard', 'large', 'xl'];
+                  this.settings.setFontScale(scales[idx]);
+                })
+              this.rowDivider()
+              this.selectRow('fontFamilyLabel', ['fontOptDefault', 'fontOptSans', 'fontOptSerif', 'fontOptMono'],
+                (): number => {
+                  const fams: string[] = ['', 'sans-serif', 'serif', 'monospace'];
+                  return fams.indexOf(this.settings.fontFamily);
+                },
+                (idx: number): void => {
+                  const fams: string[] = ['', 'sans-serif', 'serif', 'monospace'];
+                  this.settings.setFontFamily(fams[idx]);
+                })
+              this.rowDivider()
+              this.selectRow('avatarMenuSettingsDialogThemeItemLabel',
+                [
+                  'avatarMenuSettingsDialogThemeSelectSystemOption',
+                  'avatarMenuSettingsDialogThemeSelectLightOption',
+                  'avatarMenuSettingsDialogThemeSelectDarkOption',
+                ],
+                (): number => this.settings.themePreference === 'system' ? 0
+                  : (this.settings.themePreference === 'light' ? 1 : 2),
+                (idx: number): void => {
+                  const prefs: ThemePreference[] = ['system', 'light', 'dark'];
+                  this.settings.setThemePreference(prefs[idx]);
+                  this.applyTheme();
+                })
+            }
+            .backgroundColor($r('app.color.card_bg'))
+            .borderRadius(Dim.radiusM)
+            .width('100%')
 
-            this.row(I18n.translate('search'), this.settings.search ? '✓' : '', (): void => {
-              this.settings.setSearch(!this.settings.search);
-            })
+            // ---------- 对话 ----------
+            this.subHeader('settingsGroupChat')
+            Column() {
+              this.actionRowWithState('personalization', (): string =>
+                this.settings.personalization === '' ? '' : I18n.translate('personalizationEnabled'),
+              (): void => {
+                this.pathStack.pushPathByName('persona', null);
+              })
+              this.rowDivider()
+              this.toggleRow('thinkingSwitch', (): boolean => this.settings.thinking, (on: boolean): void => {
+                this.settings.setThinking(on);
+              })
+              this.rowDivider()
+              Column() {
+                this.selectRow('thinkingEffortLabel', ['thinkingEffortLow', 'thinkingEffortStandard', 'thinkingEffortMax'],
+                  (): number => this.settings.thinkingEffort === 'low' ? 0
+                    : (this.settings.thinkingEffort === 'high' ? 1 : 2),
+                  (idx: number): void => {
+                    const efforts: ThinkingEffort[] = ['low', 'high', 'max'];
+                    this.settings.setThinkingEffort(efforts[idx]);
+                  })
+              }
+              .opacity(this.settings.thinking ? 1 : 0.4)
+              this.rowDivider()
+              this.toggleRow('search', (): boolean => this.settings.search, (on: boolean): void => {
+                this.settings.setSearch(on);
+              })
+              this.rowDivider()
+              this.selectRow('settingsTtsVoice', ['settingsTtsVoiceStella', 'settingsTtsVoiceTide'],
+                (): number => this.settings.ttsVoice === 'stella' ? 0 : 1,
+                (idx: number): void => {
+                  this.settings.setTtsVoice(idx === 0 ? 'stella' : 'tide');
+                })
+            }
+            .backgroundColor($r('app.color.card_bg'))
+            .borderRadius(Dim.radiusM)
+            .width('100%')
 
-            this.row(I18n.translate('settingsTtsVoice'), this.voiceLabel(), (): void => {
-              this.settings.setTtsVoice(this.settings.ttsVoice === 'stella' ? 'tide' : 'stella');
-            })
+            // ---------- 通知 ----------
+            this.subHeader('settingsGroupNotify')
+            Column() {
+              this.toggleRow('notifyOnReply', (): boolean => this.settings.notifyOnReply, (on: boolean): void => {
+                if (!on) {
+                  this.settings.setNotifyOnReply(false);
+                  return;
+                }
+                NotifyService.requestEnable().then((granted: boolean) => {
+                  if (granted) {
+                    this.settings.setNotifyOnReply(true);
+                  } else {
+                    this.getUIContext().getPromptAction()
+                      .showToast({ message: I18n.translate('notifyPermissionDenied'), duration: 2500 });
+                  }
+                }).catch(() => {});
+              })
+              this.rowDivider()
+              this.toggleRow('liveViewOnReply', (): boolean => this.settings.liveViewOnReply, (on: boolean): void => {
+                this.settings.setLiveViewOnReply(on);
+                if (!on) {
+                  LiveViewService.replyEnded().catch(() => {});
+                }
+              })
+            }
+            .backgroundColor($r('app.color.card_bg'))
+            .borderRadius(Dim.radiusM)
+            .width('100%')
 
-            // ---------- 数据管理 ----------
-            this.subHeader(I18n.translate('settingDialogAsideDataOptionLabel'))
+            // ---------- 语言与地区 ----------
+            this.subHeader('settingsGroupLocale')
+            Column() {
+              this.selectRow('settingsLocalePreference', ['settingsLocaleZhCN', 'settingsLocaleEnUS'],
+                (): number => this.settings.locale === 'zh-CN' ? 0 : 1,
+                (idx: number): void => {
+                  this.settings.setLocale(idx === 0 ? 'zh-CN' : 'en-US');
+                })
+              this.rowDivider()
+              this.selectRow('settingsLocation', ['settingsLocationNone', ...PROVINCES],
+                (): number => {
+                  const loc = this.settings.location;
+                  if (loc === null || loc.province === null) {
+                    return 0;
+                  }
+                  const idx = PROVINCES.indexOf(loc.province);
+                  return idx >= 0 ? idx + 1 : 0;
+                },
+                (idx: number): void => {
+                  if (idx === 0) {
+                    this.settings.setLocation(null);
+                    return;
+                  }
+                  const loc = new UserLocation();
+                  loc.region = 'CN';
+                  loc.province = PROVINCES[idx - 1];
+                  this.settings.setLocation(loc);
+                })
+            }
+            .backgroundColor($r('app.color.card_bg'))
+            .borderRadius(Dim.radiusM)
+            .width('100%')
 
-            this.row(I18n.translate('deleteAllSessions'), '', (): void => {
-              this.confirmDeleteAll();
-            })
-
-            this.row(I18n.translate('historyImport'), '', (): void => {
-              this.confirmImport();
-            })
-
-            this.row(I18n.translate('exportAllLabel'), '', (): void => {
-              this.doExport();
-            })
+            // ---------- 数据 ----------
+            this.subHeader('settingsGroupData')
+            Column() {
+              this.actionRow('usageStats', (): void => {
+                this.pathStack.pushPathByName('usage', null);
+              })
+              this.rowDivider()
+              this.actionRow('historyImport', (): void => {
+                this.confirmImport();
+              })
+              this.rowDivider()
+              this.actionRow('exportAllLabel', (): void => {
+                this.doExport();
+              })
+              this.rowDivider()
+              this.actionRowDanger('deleteAllSessions', (): void => {
+                this.confirmDeleteAll();
+              })
+            }
+            .backgroundColor($r('app.color.card_bg'))
+            .borderRadius(Dim.radiusM)
+            .width('100%')
 
             // ---------- 关于 ----------
-            this.subHeader(I18n.translate('about'))
+            this.subHeader('about')
 
             Column({ space: 6 }) {
               Row() {
                 Text(I18n.translate('version'))
-                  .fontSize($r('app.float.font_body1'))
+                  .fontSize(Fonts.body1())
                   .fontColor($r('app.color.text_primary'))
                 Blank()
                 Text('1.0.0')
-                  .fontSize($r('app.float.font_body2'))
+                  .fontSize(Fonts.body2())
+                  .fontColor($r('app.color.text_secondary'))
+              }
+              .width('100%')
+
+              Row() {
+                Text(I18n.translate('modelLabel'))
+                  .fontSize(Fonts.body1())
+                  .fontColor($r('app.color.text_primary'))
+                Blank()
+                Text(this.settings.model)
+                  .fontSize(Fonts.body2())
                   .fontColor($r('app.color.text_secondary'))
               }
               .width('100%')
 
               Row() {
                 Text(I18n.translate('serverAddress'))
-                  .fontSize($r('app.float.font_body1'))
+                  .fontSize(Fonts.body1())
                   .fontColor($r('app.color.text_primary'))
                 Blank()
                 Text(this.settings.apiOrigin)
-                  .fontSize($r('app.float.font_caption'))
+                  .fontSize(Fonts.caption())
                   .fontColor($r('app.color.text_secondary'))
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -214,7 +370,7 @@ export struct SettingsPage {
               .width('100%')
 
               Text(I18n.translate('portingFrom'))
-                .fontSize($r('app.float.font_caption'))
+                .fontSize(Fonts.caption())
                 .fontColor($r('app.color.text_tertiary'))
                 .width('100%')
             }
@@ -238,25 +394,108 @@ export struct SettingsPage {
   }
 
   @Builder
-  subHeader(title: string) {
-    Text(title)
-      .fontSize($r('app.float.font_body2'))
+  subHeader(titleKey: string) {
+    Text(I18n.translate(titleKey))
+      .fontSize(Fonts.body2())
       .fontWeight(FontWeight.Medium)
       .fontColor($r('app.color.text_tertiary'))
       .width('100%')
       .padding({ top: 8, left: 4 })
   }
 
+  /**
+   * 下拉选择行：label 用词条 key、选项数组与选中索引在 @Builder 体内求值，
+   * 读取 @Trace（locale/设置项），语言与状态切换即时刷新（传值参数不响应更新）。
+   */
   @Builder
-  row(label: string, value: string, onTap: () => void) {
+  selectRow(labelKey: string, optionKeys: string[], selectedFn: () => number, onSelect: (idx: number) => void) {
     Row() {
-      Text(label)
-        .fontSize($r('app.float.font_body1'))
+      Text(I18n.translate(labelKey))
+        .fontSize(Fonts.body1())
         .fontColor($r('app.color.text_primary'))
       Blank()
-      Text(value)
-        .fontSize($r('app.float.font_body2'))
-        .fontColor(value === '' ? $r('app.color.text_tertiary') : $r('app.color.brand_activated'))
+      Select(this.selectOptions(optionKeys))
+        .selected(selectedFn())
+        .font({ size: Fonts.body2() })
+        .onSelect((idx: number, _value: string) => {
+          onSelect(idx);
+        })
+    }
+    .width('100%')
+    .height(Dim.listRowHeight)
+    .padding({ left: Dim.cardPadding, right: Dim.cardPadding })
+  }
+
+  /** 开关行（鸿蒙 Toggle 开关） */
+  @Builder
+  toggleRow(labelKey: string, isOnFn: () => boolean, onChange: (on: boolean) => void) {
+    Row() {
+      Text(I18n.translate(labelKey))
+        .fontSize(Fonts.body1())
+        .fontColor($r('app.color.text_primary'))
+      Blank()
+      Toggle({ type: ToggleType.Switch, isOn: isOnFn() })
+        .onChange((on: boolean) => {
+          onChange(on);
+        })
+    }
+    .width('100%')
+    .height(Dim.listRowHeight)
+    .padding({ left: Dim.cardPadding, right: Dim.cardPadding })
+  }
+
+  /** 动作行（整行点击，右侧可选状态值） */
+  @Builder
+  actionRowWithState(labelKey: string, valueFn: () => string, onTap: () => void) {
+    Row() {
+      Text(I18n.translate(labelKey))
+        .fontSize(Fonts.body1())
+        .fontColor($r('app.color.text_primary'))
+      Blank()
+      Text(valueFn())
+        .fontSize(Fonts.body2())
+        .fontColor(valueFn() === '' ? $r('app.color.text_tertiary') : $r('app.color.brand_activated'))
+    }
+    .width('100%')
+    .height(Dim.listRowHeight)
+    .padding({ left: Dim.cardPadding, right: Dim.cardPadding })
+    .onClick(() => {
+      onTap();
+    })
+  }
+
+  /** 危险动作行（红色标签，如删除） */
+  @Builder
+  actionRowDanger(labelKey: string, onTap: () => void) {
+    Row() {
+      Text(I18n.translate(labelKey))
+        .fontSize($r('app.float.font_body1'))
+        .fontColor($r('app.color.warning'))
+    }
+    .width('100%')
+    .height(Dim.listRowHeight)
+    .padding({ left: Dim.cardPadding, right: Dim.cardPadding })
+    .onClick(() => {
+      onTap();
+    })
+  }
+
+  /** 组内行分隔线（左右缩进） */
+  @Builder
+  rowDivider() {
+    Divider()
+      .color($r('app.color.list_separator'))
+      .strokeWidth(Dim.separator)
+      .margin({ left: Dim.cardPadding, right: Dim.cardPadding })
+  }
+
+  /** 动作行（整行点击） */
+  @Builder
+  actionRow(labelKey: string, onTap: () => void) {
+    Row() {
+      Text(I18n.translate(labelKey))
+        .fontSize(Fonts.body1())
+        .fontColor($r('app.color.text_primary'))
     }
     .width('100%')
     .height(Dim.listRowHeight)
@@ -268,31 +507,14 @@ export struct SettingsPage {
     })
   }
 
-  private localeLabel(): string {
-    return I18n.translate(this.settings.locale === 'zh-CN' ? 'settingsLocaleZhCN' : 'settingsLocaleEnUS');
-  }
-
-  private themeLabel(): string {
-    const pref = this.settings.themePreference;
-    if (pref === 'light') {
-      return I18n.translate('avatarMenuSettingsDialogThemeSelectLightOption');
+  /** 词条 key → Select 选项（体内调用以保持 locale 响应式） */
+  private selectOptions(optionKeys: string[]): SelectOption[] {
+    const arr: SelectOption[] = [];
+    for (const k of optionKeys) {
+      const o: SelectOption = { value: I18n.translate(k) };
+      arr.push(o);
     }
-    if (pref === 'dark') {
-      return I18n.translate('avatarMenuSettingsDialogThemeSelectDarkOption');
-    }
-    return I18n.translate('avatarMenuSettingsDialogThemeSelectSystemOption');
-  }
-
-  private locationLabel(): string {
-    const loc = this.settings.location;
-    if (loc === null) {
-      return I18n.translate('settingsLocationRegion');
-    }
-    return loc.province ?? loc.region;
-  }
-
-  private voiceLabel(): string {
-    return I18n.translate(this.settings.ttsVoice === 'stella' ? 'settingsTtsVoiceStella' : 'settingsTtsVoiceTide');
+    return arr;
   }
 
   private applyTheme(): void {
@@ -309,7 +531,7 @@ export struct SettingsPage {
       return KeyVault.save(AppContextHolder.get(), key).then(() => {
         this.verifyState = 'ok';
         AppStorage.setOrCreate<boolean>('hasApiKey', true);
-        promptAction.showToast({ message: I18n.translate('apiKeyStart'), duration: 1500 });
+        this.getUIContext().getPromptAction().showToast({ message: I18n.translate('apiKeyStart'), duration: 1500 });
       });
     }).catch((err: ApiError) => {
       this.verifyState = 'fail';
@@ -331,10 +553,10 @@ export struct SettingsPage {
       alignment: DialogAlignment.Center,
     };
     try {
-      promptAction.showDialog(options).then((result) => {
+      this.getUIContext().getPromptAction().showDialog(options).then((result) => {
         if (result.index === 1) {
           this.store.deleteAll();
-          promptAction.showToast({ message: I18n.translate('historyDeleted'), duration: 1500 });
+          this.getUIContext().getPromptAction().showToast({ message: I18n.translate('historyDeleted'), duration: 1500 });
         }
       });
     } catch (err) {
@@ -356,7 +578,7 @@ export struct SettingsPage {
       alignment: DialogAlignment.Center,
     };
     try {
-      promptAction.showDialog(options).then((result) => {
+      this.getUIContext().getPromptAction().showDialog(options).then((result) => {
         if (result.index === 1) {
           this.pickAndImport();
         }
@@ -385,13 +607,13 @@ export struct SettingsPage {
       } catch (e) {
         // 忽略
       }
-      promptAction.showToast({
+      this.getUIContext().getPromptAction().showToast({
         message: I18n.translate(count === 1 ? 'historyImportedOne' : 'historyImported', { 'count': `${count}` }),
         duration: 2000,
       });
     } catch (err) {
       const key = err instanceof ArchiveError ? (err as ArchiveError).key : 'historyImportFailed';
-      promptAction.showToast({ message: I18n.translate(key), duration: 2500 });
+      this.getUIContext().getPromptAction().showToast({ message: I18n.translate(key), duration: 2500 });
       Logger.warn('SettingsPage', `import failed: ${JSON.stringify(err)}`);
     }
   }
@@ -407,11 +629,11 @@ export struct SettingsPage {
       const result = await docPicker.save(saveOptions);
       if (result.length > 0) {
         fs.copyFileSync(produced, result[0]);
-        promptAction.showToast({ message: I18n.translate('historyDeleted'), duration: 1500 });
+        this.getUIContext().getPromptAction().showToast({ message: I18n.translate('historyExported'), duration: 1500 });
       }
     } catch (err) {
       const message = err instanceof Error ? (err as Error).message : `${JSON.stringify(err)}`;
-      promptAction.showToast({ message: I18n.translate('historyExportFailed', { 'message': message }), duration: 2500 });
+      this.getUIContext().getPromptAction().showToast({ message: I18n.translate('historyExportFailed', { 'message': message }), duration: 2500 });
       Logger.warn('SettingsPage', `export failed: ${JSON.stringify(err)}`);
     }
   }

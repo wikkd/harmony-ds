@@ -59,9 +59,16 @@ export class ChatStore {
   }
 
   /** 流式状态统一入口：同步 AppStorage 供 V1 组件读取 */
+  /** 流式结束（置空）后的回调；延迟一拍派发，避开 stop() 同步收尾的 pending 竞态 */
+  onStreamingEnd: (() => void) | null = null;
+
   setStreaming(id: string | null): void {
     this.streamingSessionId = id;
     AppStorage.setOrCreate<string>('streamingId', id ?? '');
+    if (id === null && this.onStreamingEnd !== null) {
+      const cb = this.onStreamingEnd;
+      setTimeout((): void => cb(), 0);
+    }
   }
 
   sessionById(id: string): Session | null {

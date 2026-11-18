@@ -1,3 +1,4 @@
+import { Fonts } from '../../common/Fonts';
 import { I18n } from '../../common/I18n';
 import { Dim } from '../../common/DesignTokens';
 import { pasteboard } from '@kit.BasicServicesKit';
@@ -45,6 +46,8 @@ export struct MessageList {
   @Param session: Session = new Session('0', 0);
   @Param visible: Message[] = [];
   @Param editingId: string = '';
+  /** 底部留白（浮动输入条高度），列表内容可滚过输入条毛玻璃 */
+  @Param bottomPad: number = 12;
   @Param onEdit: (m: UserMessage) => void = () => {};
   private store: ChatStore = ChatStore.get();
   private scroller: Scroller = new Scroller();
@@ -53,17 +56,30 @@ export struct MessageList {
     List({ scroller: this.scroller, space: 12 }) {
       ForEach(this.visible, (m: Message) => {
         ListItem() {
-          if (isUser(m)) {
-            this.userRow(m as UserMessage)
-          } else if (isAssistant(m)) {
-            this.assistantRow(m as AssistantMessage)
+          Column() {
+            if (isUser(m)) {
+              this.userRow(m as UserMessage)
+            } else if (isAssistant(m)) {
+              this.assistantRow(m as AssistantMessage)
+            }
+            if (m.id !== '' && m.id === this.session.compactAnchorId) {
+              Text(I18n.translate('compactMarker'))
+                .fontSize(Fonts.caption())
+                .fontColor($r('app.color.text_tertiary'))
+                .width('100%')
+                .textAlign(TextAlign.Center)
+                .margin({ top: 6 })
+            }
           }
+          .width('100%')
         }
+        .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 20 }))
+          .animation({ duration: 280, curve: Curve.Smooth }))
       }, (m: Message) => m.id)
     }
     .layoutWeight(1)
     .width('100%')
-    .padding({ left: Dim.pagePadding, right: Dim.pagePadding, top: 12 })
+    .padding({ left: Dim.pagePadding, right: Dim.pagePadding, top: 12, bottom: this.bottomPad })
     .scrollBar(BarState.Off)
     .edgeEffect(EdgeEffect.Spring)
   }
@@ -82,7 +98,7 @@ export struct MessageList {
                 .height(14)
                 .fillColor($r('app.color.text_primary_contrary'))
               Text(f.name)
-                .fontSize($r('app.float.font_caption'))
+                .fontSize(Fonts.caption())
                 .fontColor($r('app.color.text_primary_contrary'))
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -102,6 +118,7 @@ export struct MessageList {
           .width(16)
           .height(16)
           .fillColor($r('app.color.text_tertiary'))
+          .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
           .onClick(() => {
             if (!this.isLocked(m)) {
               this.onEdit(m);
@@ -111,12 +128,19 @@ export struct MessageList {
           .width(16)
           .height(16)
           .fillColor($r('app.color.text_tertiary'))
+          .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
           .onClick(() => {
-            copyToClipboard(m.content);
+            copyToClipboard(m.content).then(() => {
+              this.getUIContext().getPromptAction()
+                .showToast({ message: I18n.translate('copied'), duration: 1200 });
+            }).catch((err: object) => {
+              Logger.warn('MessageList', `copy failed: ${JSON.stringify(err)}`);
+            });
           })
         Text(m.content)
-          .fontSize($r('app.float.font_body1'))
+          .fontSize(Fonts.body1())
           .fontColor($r('app.color.text_primary_contrary'))
+          .fontFamily(Fonts.family())
           .lineHeight(24)
           .constraintSize({ maxWidth: `${Dim.bubbleMaxPercent}%` })
           .padding({ left: 14, right: 14, top: 10, bottom: 10 })
@@ -147,16 +171,16 @@ export struct MessageList {
   branchSwitcher(m: Message) {
     Row({ space: 8 }) {
       Text('‹')
-        .fontSize($r('app.float.font_body2'))
+        .fontSize(Fonts.body2())
         .fontColor($r('app.color.brand_activated'))
         .onClick(() => {
           this.store.switchVersion(this.session.id, m, -1);
         })
       Text(`${this.siblingIndex(m) + 1}/${this.siblingCount(m)}`)
-        .fontSize($r('app.float.font_caption'))
+        .fontSize(Fonts.caption())
         .fontColor($r('app.color.text_tertiary'))
       Text('›')
-        .fontSize($r('app.float.font_body2'))
+        .fontSize(Fonts.body2())
         .fontColor($r('app.color.brand_activated'))
         .onClick(() => {
           this.store.switchVersion(this.session.id, m, 1);
@@ -207,15 +231,10 @@ function replyTextOf(m: AssistantMessage): string {
   return out;
 }
 
-function copyToClipboard(text: string): void {
-  try {
-    const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
-    pasteboard.getSystemPasteboard().setData(data).then(() => {
-      promptAction.showToast({ message: I18n.translate('copied'), duration: 1200 });
-    });
-  } catch (err) {
-    Logger.warn('MessageList', `copy failed: ${JSON.stringify(err)}`);
-  }
+/** 复制文本到剪贴板；成功提示由调用方（组件内，this 可用）用 UIContext 弹出 */
+async function copyToClipboard(text: string): Promise<void> {
+  const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+  await pasteboard.getSystemPasteboard().setData(data);
 }
 
 
@@ -237,7 +256,7 @@ struct AssistantBody {
               .height(16)
               .fillColor($r('app.color.text_tertiary'))
             Text(this.thinkingLabel(t))
-              .fontSize($r('app.float.font_body3'))
+              .fontSize(Fonts.body3())
               .fontColor($r('app.color.text_tertiary'))
             Blank()
             Image($r('app.media.ic_public_arrow_right'))
@@ -253,7 +272,7 @@ struct AssistantBody {
 
           if (this.thinkingOpen) {
             Text(t.thinking)
-              .fontSize($r('app.float.font_body3'))
+              .fontSize(Fonts.body3())
               .lineHeight(20)
               .fontColor($r('app.color.text_secondary'))
               .padding({ top: 8 })
@@ -271,9 +290,10 @@ struct AssistantBody {
           // 流式期间用纯文本保性能；结束后 Markdown 富渲染
           if (this.message.status === 'streaming') {
             Text(t.text)
-              .fontSize($r('app.float.font_body1'))
+              .fontSize(Fonts.body1())
               .lineHeight(26)
               .fontColor($r('app.color.text_primary'))
+              .fontFamily(Fonts.family())
               .width('100%')
           } else {
             MarkdownView({ source: t.text })
@@ -286,7 +306,7 @@ struct AssistantBody {
       ForEach(this.citationCards(), (card: CitationCard, ci: number) => {
         Row({ space: 8 }) {
           Text(`${ci + 1}`)
-            .fontSize($r('app.float.font_caption'))
+            .fontSize(Fonts.caption())
             .fontColor($r('app.color.text_primary_contrary'))
             .width(18)
             .height(18)
@@ -295,13 +315,13 @@ struct AssistantBody {
             .textAlign(TextAlign.Center)
           Column({ space: 2 }) {
             Text(card.title)
-              .fontSize($r('app.float.font_body3'))
+              .fontSize(Fonts.body3())
               .fontColor($r('app.color.text_primary'))
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .width('100%')
             Text(card.url)
-              .fontSize($r('app.float.font_caption'))
+              .fontSize(Fonts.caption())
               .fontColor($r('app.color.text_tertiary'))
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -326,7 +346,7 @@ struct AssistantBody {
             .height(16)
             .color($r('app.color.text_tertiary'))
           Text(I18n.translate('messageThinking'))
-            .fontSize($r('app.float.font_body3'))
+            .fontSize(Fonts.body3())
             .fontColor($r('app.color.text_tertiary'))
         }
         .width('100%')
@@ -339,7 +359,7 @@ struct AssistantBody {
             .height(16)
             .fillColor($r('app.color.warning'))
           Text(this.errorText())
-            .fontSize($r('app.float.font_body3'))
+            .fontSize(Fonts.body3())
             .fontColor($r('app.color.warning'))
             .layoutWeight(1)
         }
@@ -356,20 +376,30 @@ struct AssistantBody {
             .width(16)
             .height(16)
             .fillColor($r('app.color.text_tertiary'))
+            .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
             .onClick(() => {
-              copyToClipboard(replyTextOf(this.message));
+              copyToClipboard(replyTextOf(this.message)).then(() => {
+                this.getUIContext().getPromptAction()
+                  .showToast({ message: I18n.translate('copied'), duration: 1200 });
+              }).catch((err: object) => {
+                Logger.warn('MessageList', `copy failed: ${JSON.stringify(err)}`);
+              });
             })
-          Image(this.ttsPlaying ? $r('app.media.ic_public_sound_off') : $r('app.media.ic_public_sound'))
-            .width(16)
-            .height(16)
-            .fillColor($r('app.color.text_tertiary'))
-            .onClick(() => {
-              this.toggleTts(this.message);
-            })
+          if (!SettingsStore.get().customModel) {
+            Image(this.ttsPlaying ? $r('app.media.ic_public_sound_off') : $r('app.media.ic_public_sound'))
+              .width(16)
+              .height(16)
+              .fillColor($r('app.color.text_tertiary'))
+              .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
+              .onClick(() => {
+                this.toggleTts(this.message);
+              })
+          }
           Image($r('app.media.ic_public_refresh'))
             .width(16)
             .height(16)
             .fillColor($r('app.color.text_tertiary'))
+            .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
             .onClick(() => {
               this.onRegenerate();
             })

@@ -1,3 +1,4 @@
+import { Fonts } from '../../common/Fonts';
 import { abilityAccessCtrl, common, Permissions } from '@kit.AbilityKit';
 import { AppContextHolder } from '../../common/AppContextHolder';
 import { Recorder } from '../../service/speech/Recorder';
@@ -38,7 +39,7 @@ export struct VoiceButton {
           .height(18)
           .color($r('app.color.brand'))
         Text(I18n.translate('voiceInputCancel'))
-          .fontSize($r('app.float.font_body3'))
+          .fontSize(Fonts.body3())
           .fontColor($r('app.color.text_secondary'))
           .layoutWeight(1)
           .onClick(() => {
@@ -50,7 +51,7 @@ export struct VoiceButton {
           .height(10)
           .fill($r('app.color.warning'))
         Text(I18n.translate('voiceInputTimer', { 'seconds': `${Math.floor(this.recMs / 1000)}` }))
-          .fontSize($r('app.float.font_body3'))
+          .fontSize(Fonts.body3())
           .fontColor($r('app.color.text_primary'))
         Blank()
         // 取消

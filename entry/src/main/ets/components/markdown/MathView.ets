@@ -1,3 +1,4 @@
+import { Fonts } from '../../common/Fonts';
 /**
  * 数学公式渲染（LaTeX 常用子集）：
  * - 符号映射（希腊字母/运算符/关系符/箭头/集合）→ Unicode
@@ -219,7 +220,7 @@ export struct MathBlock {
         Span(s.text)
       }, (s: MathSpan, i: number) => `m${i}`)
     }
-    .fontSize($r('app.float.font_body1'))
+    .fontSize(Fonts.body1())
     .fontColor($r('app.color.text_primary'))
     .fontFamily('serif')
     .width('100%')
@@ -239,7 +240,7 @@ export struct MathInline {
         Span(s.text)
       }, (s: MathSpan, i: number) => `mi${i}`)
     }
-    .fontSize($r('app.float.font_body1'))
+    .fontSize(Fonts.body1())
     .fontColor($r('app.color.text_primary'))
     .fontFamily('serif')
   }

@@ -33,6 +33,7 @@
     { "name": "switch_outline_off", "value": "#66000000" },
     { "name": "switch_bg_off", "value": "#33FFFFFF" },
     { "name": "thinking_bg", "value": "#0D0A59F7" },
-    { "name": "quote_bar", "value": "#33000000" }
+    { "name": "quote_bar", "value": "#33000000" },
+    { "name": "blur_titlebar", "value": "#A8FFFFFF" },    { "name": "blur_sider", "value": "#CCF1F3F5" },    { "name": "blur_dialog", "value": "#A8FFFFFF" },    { "name": "blur_input", "value": "#B8FFFFFF" }
   ]
 }
