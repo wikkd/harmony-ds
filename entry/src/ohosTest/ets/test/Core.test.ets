@@ -5,6 +5,7 @@ import { MathConverter } from '../../../main/ets/components/markdown/MathView';
 import { ApiError } from '../../../main/ets/service/api/ApiError';
 import { PeakPeriod } from '../../../main/ets/common/PeakPeriod';
 import { ModelInfo } from '../../../main/ets/model/ModelInfo';
+import { CharacterCard } from '../../../main/ets/common/CharacterCard';
 
 export default function coreTests(): void {
   describe('sseDecoder', () => {
@@ -213,6 +214,32 @@ export default function coreTests(): void {
         joined += s.text;
       }
       expect(joined === 'E=mc²').assertTrue();
+    });
+  });
+
+  describe('characterCard', () => {
+    it('composes known frontmatter keys with body', 0, () => {
+      const raw = '---\nname: "莫娜"\ndescription: 占星术士\npersonality: 好奇、毒舌\n---\n\n你是莫娜。';
+      expect(CharacterCard.parse(raw)
+        === '【角色名】莫娜\n\n【角色设定】占星术士\n\n【性格】好奇、毒舌\n\n你是莫娜。').assertTrue();
+    });
+    it('passes through plain markdown without frontmatter', 0, () => {
+      expect(CharacterCard.parse('你是一位耐心的老师。') === '你是一位耐心的老师。').assertTrue();
+    });
+    it('handles block scalar and crlf', 0, () => {
+      const raw = '---\r\ndescription: |\r\n  第一行设定\r\n  第二行设定\r\n---\r\n正文';
+      expect(CharacterCard.parse(raw) === '【角色设定】第一行设定\n第二行设定\n\n正文').assertTrue();
+    });
+    it('skips unknown keys and block scalars keep body', 0, () => {
+      const raw = '---\nname: 艾莉\navatar: http://x/y.png\n---\n正文';
+      expect(CharacterCard.parse(raw) === '【角色名】艾莉\n\n正文').assertTrue();
+    });
+    it('truncates to persona limit', 0, () => {
+      let long = '';
+      for (let i = 0; i < 300; i++) {
+        long += '零一二三四五六七八九';
+      }
+      expect(CharacterCard.parse(long).length === 2000).assertTrue();
     });
   });
 }

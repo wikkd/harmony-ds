@@ -2,6 +2,9 @@ import { Fonts } from '../../common/Fonts';
 import { I18n } from '../../common/I18n';
 import { Dim } from '../../common/DesignTokens';
 import { SettingsStore } from '../../prefs/SettingsStore';
+import { CharacterCard } from '../../common/CharacterCard';
+import { picker } from '@kit.CoreFileKit';
+import { Logger } from '../../common/Logger';
 
 /** 个性化编辑页：自定义人格与回复要求提示词（角色扮演） */
 @ComponentV2
@@ -48,6 +51,14 @@ export struct PersonaPage {
         .width('100%')
 
         Row({ space: 12 }) {
+          Button(I18n.translate('personaImport'))
+            .fontSize(Fonts.body2())
+            .backgroundColor($r('app.color.component_normal'))
+            .fontColor($r('app.color.text_primary'))
+            .layoutWeight(1)
+            .onClick(() => {
+              this.importCard();
+            })
           Button(I18n.translate('personalizationClear'))
             .fontSize(Fonts.body2())
             .backgroundColor($r('app.color.component_normal'))
@@ -90,5 +101,35 @@ export struct PersonaPage {
   private toastSaved(): void {
     this.getUIContext().getPromptAction()
       .showToast({ message: I18n.translate('settingsSaved'), duration: 1500 });
+  }
+
+  /** 导入角色卡 md：选择文件 → 解析填入草稿（不自动保存，用户确认后生效） */
+  private async importCard(): Promise<void> {
+    try {
+      const docPicker = new picker.DocumentViewPicker();
+      const opts = new picker.DocumentSelectOptions();
+      opts.maxSelectNumber = 1;
+      opts.fileSuffixFilters = ['.md', '.markdown', '.txt'];
+      const res = await docPicker.select(opts);
+      if (res.length === 0) {
+        return; // 用户取消
+      }
+      const raw = await CharacterCard.readText(res[0]);
+      const card = CharacterCard.parse(raw);
+      if (card === '') {
+        this.toast(I18n.translate('personaImportFailed'));
+        return;
+      }
+      this.text = card;
+      this.toast(I18n.translate('personaImported'));
+    } catch (err) {
+      Logger.warn('PersonaPage', `import card failed: ${JSON.stringify(err)}`);
+      this.toast(I18n.translate('personaImportFailed'));
+    }
+  }
+
+  private toast(msg: string): void {
+    this.getUIContext().getPromptAction()
+      .showToast({ message: msg, duration: 2000 });
   }
 }
