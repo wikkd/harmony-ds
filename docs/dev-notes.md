@@ -46,3 +46,18 @@ chat-demo → 鸿蒙原生移植（M1–M12）过程中沉淀的实操经验，�
 - 纯逻辑（SSE 解码、Markdown/数学转换、错误码映射、峰谷判定）全部进 hypium 单测 `entry/src/ohosTest/ets/test/Core.test.ets`：放 ohosTest 源集是因为它既能在 IDE 设备测试里跑，也能被 `scripts\test.cmd` 脚本化（构建测试包 → `aa test` → 自动恢复正式包）；src/test 本地套件需要 IDE 且不能脚本化，只留模板冒烟。
 - 一次 ohosTest 构建失败的教训：跨源集 import（src/test ↔ src/main）在本地测试与设备测试编译里解析规则不同，`any` 报错全是 import 解析失败的级联效应，先修路径再看类型。
 - UI/流式行为在真机人工验收：改代码 → 构建通过 → `scripts\install.cmd` 装机 → 人工点验。自动化截图循环只在外观回归时才值得。
+
+## 消息注入测试（真机 E2E 的可靠路径）
+
+- UI 驱动（点输入框 → inputText → 点发送）受 IME 组合串、键盘时序、熄屏影响，成功率不稳定。可靠方案是 **`aa start --ps` 参数注入**（TestHarness，Debug 构建生效）：
+  - `--ps testInject math|md|long`：向当前会话注入固定消息夹具，走真实渲染管线，断言全靠 dumpLayout；
+  - `--ps testKey <sk-...>`：真实 GET /models 校验后入 KeyVault（Key 只走命令行参数，不落代码库）；
+  - `--ps testSend <文本>`：注入用户消息后走完整 ReplyEngine（真 SSE/思考/搜索）。
+  - 冷启动注入要等 ChatStore 恢复完成（isReady 轮询）；已在运行时参数走 onNewWant。封装在 `scripts\inject.cmd`。
+- **平板（MRDI-W00 实测）设备怪癖**：
+  - `screenCap` 不存在，用 `snapshot_display -f`；但快照/合成层不可靠（会出黑帧、丢文字层）——**渲染断言一律以 `uitest dumpLayout` 的节点树为准**，截图只作参考。
+  - 自动锁屏后 `uiInput click/swipe` 静默失效（返回 No Error 但无效果）；每次交互批次前先 `power-shell wakeup`，失败就唤醒后重试一次。
+  - 免打扰/睡前模式下熄屏极快，长测试中途会被锁屏打断：交互命令要"唤醒+动作"同批执行。
+- 宽屏（≥840vp）常驻侧栏的让位必须用**布局手段**（padding/margin），不能只用 translate：translate 不改布局宽度，`width('100%')` 子件仍按全窗宽居中，内容整体右偏且右缘被推出屏幕（主页欢迎态/输入面板/消息列表全部中招）。
+- **Scroll 内容里 Row 不要用 `Blank()` 撑开**：平板实测 Row 内 Blank 会把同 Row 的 Text/Image 节点整个吞掉（树里都没有），同样代码在设置页 optionRow（用 `Text.layoutWeight(1)`，无 Blank）正常。撑开一律 `layoutWeight(1)`。
+- `@ComponentV2` 子组件的回调入参必须 `@Param`（普通属性禁止父级初始化，10905324）。
