@@ -62,6 +62,12 @@ export default class EntryAbility extends UIAbility {
           const indicator: window.AvoidArea =
             mainWin.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR);
           AppStorage.setOrCreate<number>('safeBottomVp', indicator.bottomRect.height / density);
+          // 系统默认避让区（TYPE_SYSTEM）的 topRect 即状态栏高度：
+          // 顶部浮层控件（抽屉钮/胶囊）按此定位在其下方
+          const status: window.AvoidArea =
+            mainWin.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
+          AppStorage.setOrCreate<number>('safeTopVp', status.topRect.height / density);
+          hilog.info(DOMAIN, TAG, `safeTop px=${status.topRect.height} density=${density} vp=${status.topRect.height / density} winH=${props.windowRect.height}`);
         } catch (e) {
           hilog.warn(DOMAIN, TAG, 'breakpoint update failed: %{public}s', JSON.stringify(e));
         }

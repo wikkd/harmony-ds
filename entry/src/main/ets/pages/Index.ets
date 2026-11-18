@@ -1,4 +1,5 @@
 import { Fonts } from '../common/Fonts';
+import { KeyboardAvoidMode } from '@ohos.arkui.UIContext';
 import { I18n } from '../common/I18n';
 import { SettingsStore } from '../prefs/SettingsStore';
 import { ThemeHelper } from '../common/ThemeHelper';
@@ -9,12 +10,14 @@ import { KeyVault } from '../prefs/KeyVault';
 import { ChatStore } from '../service/chat/ChatStore';
 import { ReplyEngine } from '../service/chat/ReplyEngine';
 import { Dim } from '../common/DesignTokens';
-import { PeakPeriod } from '../common/PeakPeriod';
+import { DrawerButton, StatusCapsule } from '../components/titlebar/TopControls';
 import { PrivacyPolicyPage } from '../components/privacy/PrivacyPolicyPage';
 import { MessageList } from '../components/messages/MessageList';
 import { ChatInput } from '../components/chatinput/ChatInput';
 import { Sider } from '../components/sider/Sider';
 import { SettingsPage } from '../components/settings/SettingsPage';
+import { ModelConfigPage } from '../components/settings/ModelConfigPage';
+import { DataManagePage } from '../components/settings/DataManagePage';
 import { UsagePage } from '../components/usage/UsagePage';
 import { PersonaPage } from '../components/persona/PersonaPage';
 import { UserMessage, FileAttachment, AssistantMessage, isAssistant, Message } from '../model/ChatTypes';
@@ -31,9 +34,29 @@ import { Logger } from '../common/Logger';
 @Component
 struct Index {
   pathStack: NavPathStack = new NavPathStack();
-  @StorageProp('safeBottomVp') safeBottom: number = 0;
+
+  aboutToAppear(): void {
+    // 键盘避让改压缩模式：默认 OFFSET 整窗上移会把标题栏顶出屏幕；
+    // RESIZE 压缩窗口高度，标题栏/欢迎区保持原位，输入面板整体浮到键盘上方
+    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
+  }
+
+  /** 窄屏抽屉展开时，返回键/返回手势先收起抽屉 */
+  onBackPress(): boolean {
+    const narrow = (AppStorage.get<number>('bpWindowWidth') ?? 0) < Dim.siderPermanentBp;
+    const progress = AppStorage.get<number>('drawerProgress') ?? 0;
+    if (narrow && progress > 0.01) {
+      this.getUIContext().animateTo({ duration: 300, curve: Curve.Smooth }, (): void => {
+        AppStorage.setOrCreate<number>('drawerProgress', 0);
+      });
+      return true;
+    }
+    return false;
+  }
 
   build() {
+    // Navigation 作为页面根：唯一可交互层，内部承载主页与子页面。
+    // （不能用「透明 Navigation 叠在主页上」的结构——空 Navigation 也会拦截全部触摸）
     Navigation(this.pathStack) {
       HomePage({ pathStack: this.pathStack })
     }
@@ -42,7 +65,11 @@ struct Index {
     .hideToolBar(true)
     .backgroundColor($r('app.color.app_bg'))
     .mode(NavigationMode.Stack)
-    .padding({ bottom: this.safeBottom })
+    // 沉浸式：Navigation 自身扩展进状态栏/手势条避让区，
+    // 内容（主页标题栏、抽屉、遮罩）才能真正铺到屏幕物理边缘
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+    // 注意：Navigation 不能加底部 padding —— 会在内容与导航条之间留下白色背景条；
+    // 底部避让只由主页输入区自己承担（各子页背景直接铺到屏幕底）
   }
 
   @Builder
@@ -55,6 +82,10 @@ struct Index {
       UsagePage()
     } else if (name === 'persona') {
       PersonaPage()
+    } else if (name === 'model') {
+      ModelConfigPage({ pathStack: this.pathStack })
+    } else if (name === 'data') {
+      DataManagePage({ pathStack: this.pathStack })
     }
   }
 }
@@ -62,57 +93,26 @@ struct Index {
 @Component
 struct HomePage {
   pathStack: NavPathStack = new NavPathStack();
-  @State siderOpen: boolean = false;
+  @StorageProp('safeBottomVp') safeBottom: number = 0;
+  /** 抽屉进度 0 收起 / 1 展开：驱动侧栏滑入与主内容推出，AppStorage 供 Index.onBackPress 读取 */
+  @StorageLink('drawerProgress') drawerProgress: number = 0;
   @StorageLink('bpWindowWidth') winWidth: number = 0;
-  /** 峰谷红绿灯：定时刷新使圆点随时段切换 */
-  @State periodTick: number = 0;
-  @State showPeakPopup: boolean = false;
-  private periodTimer: number = -1;
-
-  aboutToAppear(): void {
-    this.periodTimer = setInterval((): void => {
-      this.periodTick++;
-    }, 30000);
-  }
-
-  aboutToDisappear(): void {
-    if (this.periodTimer >= 0) {
-      clearInterval(this.periodTimer);
-      this.periodTimer = -1;
-    }
-  }
-
-  private isPeakNow(): boolean {
-    // 读取 periodTick 建立刷新依赖，每 30 秒重估
-    const _tick = this.periodTick;
-    return PeakPeriod.isPeak(new Date());
-  }
+  /** 拖动过程中的起始进度与有效标记 */
+  private dragBase: number = 0;
+  private dragActive: boolean = false;
 
   private isWide(): boolean {
     return this.winWidth >= Dim.siderPermanentBp;
   }
 
   build() {
-    SideBarContainer(SideBarContainerType.AUTO) {
-      // 侧栏（overlay 抽屉时毛玻璃浮层）
-      Column() {
-        Sider({
-          onSessionSelected: () => {
-            if (!this.isWide()) {
-              this.siderOpen = false;
-            }
-          },
-        })
-      }
-      .width(Dim.siderWidth)
-      .backgroundColor($r('app.color.blur_sider'))
-      .backgroundBlurStyle(BlurStyle.COMPONENT_REGULAR)
-
-      // 主区（沉浸式：内容延伸至标题栏下方，标题栏毛玻璃分层）
+    Stack({ alignContent: Alignment.Start }) {
+      // 主内容：抽屉展开时被整体向右推出屏幕，收起时拉回
       Column() {
         Stack({ alignContent: Alignment.Top }) {
           Column() {
             ChatView({
+              safeBottom: this.safeBottom,
               onNeedKey: (): void => {
                 this.pathStack.pushPathByName('settings', null);
               },
@@ -120,144 +120,139 @@ struct HomePage {
           }
           .width('100%')
           .height('100%')
-          .padding({ top: 60 })
           .backgroundColor($r('app.color.app_bg'))
+          // 聊天页延伸到物理上下边缘：列表视口与输入面板都铺满，底部不留安全区死空间
+          .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
 
-          this.titleBar()
+          // 顶部浮层控件行：左抽屉钮、右胶囊（毛玻璃半遮挡）。
+          // 用 Row+padding 定位——position 下的 margin 不生效
+          Row() {
+            DrawerButton({
+              onTap: (): void => {
+                if (this.drawerProgress > 0.5) {
+                  this.closeDrawer();
+                } else {
+                  this.openDrawer();
+                }
+              },
+            })
+              .visibility(this.isWide() ? Visibility.None : Visibility.Visible)
+            Blank()
+            StatusCapsule({
+              onOpenSettings: (): void => {
+                this.pathStack.pushPathByName('settings', null);
+              },
+            })
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Top)
+          .padding({ left: 12, right: 12, top: 12 })
         }
         .width('100%')
         .height('100%')
       }
       .width('100%')
       .height('100%')
-    }
-    .showSideBar(this.isWide() || this.siderOpen)
-    .autoHide(false)
-    .showControlButton(false)
-    .sideBarWidth(Dim.siderWidth)
-    .minContentWidth(320)
-    .onChange((open: boolean) => {
-      if (!open && !this.isWide()) {
-        this.siderOpen = false;
-      }
-    })
-  }
+      .translate({ x: this.contentShift() })
 
-  @Builder
-  titleBar() {
-    Row({ space: 12 }) {
-      // 窄屏抽屉按钮（宽屏侧栏常驻，隐藏）
-      Image($r('app.media.ic_public_drawer_filled'))
-        .width(24)
-        .height(24)
-        .fillColor($r('app.color.titlebar_icon'))
-        .padding(2)
-        .visibility(this.isWide() ? Visibility.None : Visibility.Visible)
-        .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
-        .onClick(() => {
-          this.siderOpen = !this.siderOpen;
+      // 抽屉展开期间的透明触控层：无压暗、无渐变，仅用于点击空白处收起抽屉
+      if (!this.isWide() && this.drawerProgress > 0.01) {
+        Column()
+          .width('100%')
+          .height('100%')
+          .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+          .onClick(() => {
+            this.closeDrawer();
+          })
+      }
+
+      // 侧栏抽屉：实底面板直接从屏幕左缘拉出（宽屏常驻），无投影无渐变，边缘干净
+      Column() {
+        Sider({
+          onSessionSelected: () => {
+            if (!this.isWide()) {
+              this.closeDrawer();
+            }
+          },
         })
-      Row({ space: 8 }) {
-        Image($r('app.media.startIcon'))
-          .width(28)
-          .height(28)
-          .borderRadius(Dim.radiusS)
-        Text(I18n.translate('appName'))
-          .fontSize(Fonts.headline8())
-          .fontWeight(FontWeight.Bold)
-          .fontColor($r('app.color.text_primary'))
-        // 峰谷红绿灯：红=高峰时段，绿=空闲时段（点击查看说明）
-        Circle({ width: 10, height: 10 })
-          .fill(this.isPeakNow() ? $r('app.color.warning') : $r('app.color.success'))
-          .accessibilityText(this.isPeakNow() ? I18n.translate('peakLightPeakNow') : I18n.translate('peakLightIdleNow'))
-          .bindPopup(this.showPeakPopup, {
-            builder: (): void => {
-              this.peakPopup()
-            },
-            placement: Placement.Bottom,
-            popupColor: $r('app.color.dialog_bg'),
-            enableArrow: true,
-            autoCancel: true,
-            onStateChange: (e: PopupStateChangeParam) => {
-              this.showPeakPopup = e.isVisible;
-            },
-          })
-          .onClick(() => {
-            this.showPeakPopup = !this.showPeakPopup;
-          })
       }
-      .alignItems(VerticalAlign.Center)
-
-      Blank()
-
-      Row({ space: 4 }) {
-        // 新对话
-        Image($r('app.media.ic_public_add'))
-          .width(24)
-          .height(24)
-          .fillColor($r('app.color.titlebar_icon'))
-          .padding(2)
-          .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
-          .onClick(() => {
-            ChatStore.get().newSession();
-          })
-        // 设置
-        Image($r('app.media.ic_public_settings'))
-          .width(24)
-          .height(24)
-          .fillColor($r('app.color.titlebar_icon'))
-          .padding(2)
-          .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
-          .onClick(() => {
-            this.pathStack.pushPathByName('settings', null);
-          })
-      }
-      .alignItems(VerticalAlign.Center)
+      .width(Dim.siderWidth)
+      .height('100%')
+      .backgroundColor($r('app.color.sider_bg'))
+      .translate({ x: this.siderShift() })
+      // 上下扩展只作用于绘制：灰底铺进状态栏/手势条区域，内容仍在安全区内排布
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+      .visibility(this.isWide() || this.drawerProgress > 0.01 ? Visibility.Visible : Visibility.None)
     }
     .width('100%')
-    .height(56)
-    .padding({ left: Dim.pagePadding, right: 8 })
-    .alignItems(VerticalAlign.Center)
-    .backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
-    .backgroundColor($r('app.color.blur_titlebar'))
+    .height('100%')
+    // 整页沉浸到物理边缘：状态栏与手势条区域都铺底色，不再有安全区分界线
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+    // 平行手势：横向拖动驱动抽屉，不拦截列表纵向滚动与子件点击
+    .parallelGesture(this.drawerPan())
   }
 
-  /** 峰谷说明悬浮窗 */
-  @Builder
-  peakPopup() {
-    Column({ space: 8 }) {
-      Row({ space: 8 }) {
-        Circle({ width: 10, height: 10 })
-          .fill(this.isPeakNow() ? $r('app.color.warning') : $r('app.color.success'))
-        Text(this.isPeakNow() ? I18n.translate('peakLightPeak') : I18n.translate('peakLightIdle'))
-          .fontSize(Fonts.body2())
-          .fontWeight(FontWeight.Medium)
-          .fontColor($r('app.color.text_primary'))
-        Blank()
-        Text(this.isPeakNow() ? I18n.translate('peakLightNextIdle') : I18n.translate('peakLightNextPeak'))
-          .fontSize(Fonts.caption())
-          .fontColor($r('app.color.text_tertiary'))
-      }
-      .width('100%')
-
-      Text(this.isPeakNow() ? I18n.translate('peakLightPeakNow') : I18n.translate('peakLightIdleNow'))
-        .fontSize(Fonts.caption())
-        .fontColor($r('app.color.text_secondary'))
-        .width('100%')
-
-      Text(I18n.translate('peakLightWindows'))
-        .fontSize(Fonts.caption())
-        .fontColor($r('app.color.text_tertiary'))
-        .width('100%')
-
-      Text(`${I18n.translate('peakLightBeijingTime')} ${PeakPeriod.formatBeijing(PeakPeriod.nextTransition(new Date()))}`)
-        .fontSize(Fonts.caption())
-        .fontColor($r('app.color.brand_activated'))
-        .width('100%')
-    }
-    .padding(12)
-    .width(248)
+  /** 主内容水平位移：宽屏常驻让出侧栏宽度，窄屏随抽屉进度向右推出 */
+  private contentShift(): number {
+    return this.isWide() ? Dim.siderWidth : Dim.siderWidth * this.drawerProgress;
   }
+
+  /** 侧栏水平位移：收起时完全藏在屏幕左缘外 */
+  private siderShift(): number {
+    return this.isWide() ? 0 : (this.drawerProgress - 1) * Dim.siderWidth;
+  }
+
+  private openDrawer(): void {
+    this.getUIContext().animateTo({ duration: 300, curve: Curve.Smooth }, (): void => {
+      this.drawerProgress = 1;
+    });
+  }
+
+  private closeDrawer(): void {
+    this.getUIContext().animateTo({ duration: 300, curve: Curve.Smooth }, (): void => {
+      this.drawerProgress = 0;
+    });
+  }
+
+  /** 抽屉横向拖动：展开时任意位置拖回，收起时仅左缘 80vp 内可拖出；松手按进度/速度吸附 */
+  private drawerPan(): PanGestureInterface {
+    return PanGesture({ fingers: 1, direction: PanDirection.Horizontal, distance: 10 })
+      .onActionStart((e: GestureEvent) => {
+        this.dragBase = this.drawerProgress;
+        const startX = e.fingerList.length > 0 ? e.fingerList[0].globalX : 0;
+        this.dragActive = !this.isWide() && (this.dragBase > 0.01 || startX <= 80);
+      })
+      .onActionUpdate((e: GestureEvent) => {
+        if (!this.dragActive || this.isWide()) {
+          return;
+        }
+        const p = this.dragBase + e.offsetX / Dim.siderWidth;
+        this.drawerProgress = Math.min(Math.max(p, 0), 1);
+      })
+      .onActionEnd((e: GestureEvent) => {
+        if (!this.dragActive) {
+          return;
+        }
+        this.dragActive = false;
+        if (this.drawerProgress > 0.5 || e.velocityX > 360) {
+          this.openDrawer();
+        } else {
+          this.closeDrawer();
+        }
+      })
+      .onActionCancel(() => {
+        if (!this.dragActive) {
+          return;
+        }
+        this.dragActive = false;
+        if (this.drawerProgress > 0.5) {
+          this.openDrawer();
+        } else {
+          this.closeDrawer();
+        }
+      });
+  }
+
 }
 
 /** 会话主视图（V2）：欢迎态 / 可见链消息列表 + 受控输入 */
@@ -270,9 +265,13 @@ struct ChatView {
   @Local draftFiles: FileAttachment[] = [];
   /** 排队消息：流式期间发送自动入队，回复结束按序自动发出 */
   @Local queue: QueuedSend[] = [];
+  /** 输入面板实际高度（vp）：列表底部留白按它动态计算，不再写死 */
+  @Local dockH: number = 170;
   /** 「立即」待发项：停止当前流后优先发出 */
   private immediatePending: QueuedSend | null = null;
   @Param onNeedKey: () => void = () => {};
+  /** 手势条高度（vp）：输入区底部避让 */
+  @Param safeBottom: number = 0;
 
   aboutToAppear(): void {
     this.store.onStreamingEnd = (): void => this.drainOnStreamEnd();
@@ -305,20 +304,19 @@ struct ChatView {
     ReplyEngine.send(this.store.currentSessionId, item.text, files);
   }
 
-  /** 「立即」：出队 → 停止当前流 → 立即发出 */
+  /** 「立即」：出队 → 停止当前流，由 onStreamingEnd 统一优先发出（避免与回调竞态） */
   private sendQueuedNow(item: QueuedSend): void {
-    if (this.store.streamingSessionId !== null) {
-      const idx = this.queue.indexOf(item);
-      if (idx >= 0) {
-        this.queue.splice(idx, 1);
-      }
+    const idx = this.queue.indexOf(item);
+    if (idx >= 0) {
+      this.queue.splice(idx, 1);
+    }
+    const streamingId = this.store.streamingSessionId;
+    if (streamingId !== null) {
       this.immediatePending = item;
-      ReplyEngine.stop(this.store.currentSessionId);
+      ReplyEngine.stop(streamingId);
+      return;
     }
-    if (this.immediatePending === item && this.store.streamingSessionId === null) {
-      this.immediatePending = null;
-      this.sendNow(item);
-    }
+    this.sendNow(item);
   }
 
   private removeQueued(item: QueuedSend): void {
@@ -352,45 +350,44 @@ struct ChatView {
 
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
-      if (this.store.visible.length === 0) {
-        Column() {
-          Blank()
-          Image($r('app.media.ic_public_message_filled'))
-            .width(44)
-            .height(44)
-            .fillColor($r('app.color.brand'))
-            .margin({ bottom: 20 })
-          Text(I18n.translate('welcomeMessageChat250808'))
-            .fontSize(Fonts.headline6())
-            .fontWeight(FontWeight.Medium)
-            .fontColor($r('app.color.text_primary'))
-            .fontFamily(Fonts.family())
-            .textAlign(TextAlign.Center)
-          Text(I18n.translate('portingFrom'))
-            .fontSize(Fonts.caption())
-            .fontColor($r('app.color.text_tertiary'))
-            .margin({ top: 12 })
-            .textAlign(TextAlign.Center)
-          Blank()
+      // 消息区：列表/欢迎页占满，提示语在底部输入面板下方
+      Column() {
+        if (this.store.visible.length === 0) {
+          Column() {
+            Blank()
+            Image($r('app.media.ic_public_message_filled'))
+              .width(56)
+              .height(56)
+              .fillColor($r('app.color.brand'))
+              .margin({ bottom: 20 })
+            Text(I18n.translate('welcomeMessageChat250808'))
+              .fontSize(Fonts.headline6())
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.text_primary'))
+              .textAlign(TextAlign.Center)
+            Blank()
+          }
+          .constraintSize({ maxWidth: Dim.contentMaxWidth })
+          .width('100%')
+          .layoutWeight(1)
+          .padding({ bottom: 190 })
+        } else {
+          MessageList({
+            session: this.store.current(),
+            visible: this.store.visible,
+            editingId: this.editingId,
+            bottomPad: this.dockH + 10,
+            onEdit: (m: UserMessage) => {
+              this.editingId = m.id;
+              this.draft = m.content;
+            },
+          })
+          .width('100%')
+          .layoutWeight(1)
         }
-        .constraintSize({ maxWidth: Dim.contentMaxWidth })
-        .width('100%')
-        .height('100%')
-        .padding({ bottom: 190 })
-      } else {
-        MessageList({
-          session: this.store.current(),
-          visible: this.store.visible,
-          editingId: this.editingId,
-          bottomPad: 190,
-          onEdit: (m: UserMessage) => {
-            this.editingId = m.id;
-            this.draft = m.content;
-          },
-        })
-        .width('100%')
-        .height('100%')
       }
+      .width('100%')
+      .height('100%')
 
       Column() {
         if (this.queue.length > 0) {
@@ -439,11 +436,8 @@ struct ChatView {
           .padding({ left: Dim.pagePadding, right: Dim.pagePadding, bottom: 4 })
         }
 
-        Text(I18n.translate('contentCaveat'))
-          .fontSize(Fonts.caption())
-          .fontColor($r('app.color.text_tertiary'))
-          .margin({ bottom: 4 })
-
+      // 面板水平留白由父容器承担（子组件 width('100%') + margin 不生效）
+      Column() {
       ChatInput({
         text: this.draft,
         streaming: this.store.streamingSessionId !== null,
@@ -473,12 +467,14 @@ struct ChatView {
         onCompact: (): void => {
           this.doCompact();
         },
-        onPickFiles: () => {
-          AttachmentService.pick(this.draftFiles.length).then((picked: FileAttachment[]) => {
-            for (const f of picked) {
-              this.draftFiles.push(f);
-            }
-          }).catch(() => {});
+        onCapture: (): void => {
+          this.attachFiles(AttachmentService.capture(this.draftFiles.length));
+        },
+        onPickPhotos: (): void => {
+          this.attachFiles(AttachmentService.pickPhotos(this.draftFiles.length));
+        },
+        onPickDocs: (): void => {
+          this.attachFiles(AttachmentService.pickDocs(this.draftFiles.length));
         },
         onRemoveFile: (f: FileAttachment) => {
           const idx = this.draftFiles.indexOf(f);
@@ -488,9 +484,25 @@ struct ChatView {
         },
       })
       }
+      .padding({ left: Dim.pagePadding, right: Dim.pagePadding })
       .width('100%')
-      .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THIN)
-      .backgroundColor($r('app.color.blur_input'))
+
+      // AI 生成提示：对话框下方、导航条（手势条）上方
+      if (this.store.visible.length > 0) {
+        Text(I18n.translate('contentCaveat'))
+          .fontSize(Fonts.caption())
+          .fontColor($r('app.color.text_tertiary'))
+          .textAlign(TextAlign.Center)
+          .width('100%')
+          .margin({ top: 2 })
+      }
+      }
+      .width('100%')
+      // 手势条为半透明浮层，底部少避让 20vp 让输入面板贴近屏幕底（对齐官方观感）
+      .padding({ bottom: Math.max(this.safeBottom - 20, 8) })
+      .onAreaChange((_o: Area, nv: Area) => {
+        this.dockH = Number(nv.height);
+      })
     }
     .constraintSize({ maxWidth: Dim.contentMaxWidth + 32 })
     .width('100%')
@@ -503,6 +515,12 @@ struct ChatView {
     if (this.store.streamingSessionId !== null) {
       return;
     }
+    // 空会话没有可压缩的上下文：直接拒绝，不发摘要请求
+    if (this.store.visible.length === 0) {
+      this.getUIContext().getPromptAction()
+        .showToast({ message: I18n.translate('compactEmpty'), duration: 2000 });
+      return;
+    }
     this.getUIContext().getPromptAction()
       .showToast({ message: I18n.translate('compactRunning'), duration: 3000 });
     ReplyEngine.compact(this.store.currentSessionId).then((r: string) => {
@@ -512,6 +530,15 @@ struct ChatView {
       this.getUIContext().getPromptAction()
         .showToast({ message: I18n.translate('compactFailed'), duration: 2500 });
     });
+  }
+
+  /** 附件选择结果并入草稿 */
+  private attachFiles(pending: Promise<FileAttachment[]>): void {
+    pending.then((picked: FileAttachment[]) => {
+      for (const f of picked) {
+        this.draftFiles.push(f);
+      }
+    }).catch(() => {});
   }
 
   private dispatchSend(text: string): void {

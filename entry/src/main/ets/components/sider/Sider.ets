@@ -4,7 +4,7 @@ import { Dim } from '../../common/DesignTokens';
 import { ChatStore } from '../../service/chat/ChatStore';
 import { MarkdownExport } from '../../service/history/MarkdownExport';
 import { Session } from '../../model/ChatTypes';
-import { promptAction } from '@kit.ArkUI';
+import { Logger } from '../../common/Logger';
 
 /**
  * 会话侧栏（鸿蒙 SideBarContainer 内容）：新对话 + 时间分组会话列表 + 重命名/删除。
@@ -43,44 +43,51 @@ export struct Sider {
           this.onSessionSelected();
         })
 
-        // 分组列表
+        // 分组列表（拍平为单层 ForEach：组头/会话行各自稳定 key，
+        // 嵌套 ForEach 会因外层 key 复用旧子树导致删除行不消失）
         List({ space: 2 }) {
-          ForEach(this.groups(), (g: SiderGroup) => {
+          ForEach(this.rows(), (r: SiderRow) => {
             ListItem() {
-              Text(g.label)
-                .fontSize(Fonts.body3())
-                .fontColor($r('app.color.text_tertiary'))
-                .width('100%')
-                .padding({ left: 12, top: 14, bottom: 6 })
-            }
-            ForEach(g.items, (s: Session) => {
-              ListItem() {
+              if (r.isHeader) {
+                Text(r.label)
+                  .fontSize(Fonts.body3())
+                  .fontColor($r('app.color.text_tertiary'))
+                  .width('100%')
+                  .padding({ left: 12, top: 14, bottom: 6 })
+              } else {
                 Row() {
-                  Text(this.store.displayTitle(s))
+                  Text(this.store.displayTitle(r.session as Session))
                     .fontSize(Fonts.body2())
-                    .fontColor(s.id === this.store.currentSessionId ? $r('app.color.text_primary') : $r('app.color.text_secondary'))
+                    .fontColor(r.session?.id === this.store.currentSessionId ? $r('app.color.text_primary') : $r('app.color.text_secondary'))
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                     .layoutWeight(1)
-                  Image($r('app.media.ic_public_more'))
-                    .width(18)
-                    .height(18)
-                    .fillColor($r('app.color.text_tertiary'))
-                    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
-                    .bindMenu(this.sessionMenu(s))
+                  // ⋯ 图标仅 18vp，直接绑菜单很难点中，外包 32vp 触控区
+                  Row() {
+                    Image($r('app.media.ic_public_more'))
+                      .width(18)
+                      .height(18)
+                      .fillColor($r('app.color.text_tertiary'))
+                  }
+                  .width(32)
+                  .height(32)
+                  .justifyContent(FlexAlign.Center)
+                  .alignItems(VerticalAlign.Center)
+                  .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
+                  .bindMenu(this.sessionMenu(r.session as Session))
                 }
                 .width('100%')
                 .height(44)
                 .borderRadius(Dim.radiusM)
                 .padding({ left: 12, right: 8 })
-                .backgroundColor(s.id === this.store.currentSessionId ? $r('app.color.thinking_bg') : Color.Transparent)
+                .backgroundColor(r.session?.id === this.store.currentSessionId ? $r('app.color.thinking_bg') : Color.Transparent)
                 .onClick(() => {
-                  this.store.switchTo(s.id);
+                  this.store.switchTo((r.session as Session).id);
                   this.onSessionSelected();
                 })
               }
-            }, (s: Session) => s.id + '_' + s.updatedAt)
-          }, (g: SiderGroup) => g.label)
+            }
+          }, (r: SiderRow) => r.key)
         }
         .layoutWeight(1)
         .width('100%')
@@ -147,31 +154,51 @@ export struct Sider {
     .backgroundColor($r('app.color.blur_dialog'))
   }
 
-  private groups(): SiderGroup[] {
+  /** 扁平行列表：组头行 + 会话行，key 稳定（删除会话即差分移除） */
+  private rows(): SiderRow[] {
     const now = Date.now();
     const dayMs = 24 * 3600 * 1000;
     const startOfToday = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
-    const groups: SiderGroup[] = [
-      new SiderGroup(I18n.translate('sessionHistoryTimelineLabelToday')),
-      new SiderGroup(I18n.translate('sessionHistoryTimelineLabelYesterday')),
-      new SiderGroup(I18n.translate('sessionHistoryTimelineLabel7days')),
-      new SiderGroup(I18n.translate('sessionHistoryTimelineLabel30days')),
-      new SiderGroup('···'),
+    const buckets: SiderRow[][] = [[], [], [], [], []];
+    const headerLabels: string[] = [
+      I18n.translate('sessionHistoryTimelineLabelToday'),
+      I18n.translate('sessionHistoryTimelineLabelYesterday'),
+      I18n.translate('sessionHistoryTimelineLabel7days'),
+      I18n.translate('sessionHistoryTimelineLabel30days'),
+      '···',
     ];
     for (const s of this.store.sessions) {
-      let g = groups[4];
+      let b = 4;
       if (s.updatedAt >= startOfToday) {
-        g = groups[0];
+        b = 0;
       } else if (s.updatedAt >= startOfToday - dayMs) {
-        g = groups[1];
+        b = 1;
       } else if (s.updatedAt >= startOfToday - 7 * dayMs) {
-        g = groups[2];
+        b = 2;
       } else if (s.updatedAt >= startOfToday - 30 * dayMs) {
-        g = groups[3];
+        b = 3;
       }
-      g.items.push(s);
+      const row = new SiderRow();
+      row.isHeader = false;
+      row.session = s;
+      row.key = `s_${s.id}_${s.updatedAt}`;
+      buckets[b].push(row);
     }
-    return groups.filter((g) => g.items.length > 0);
+    const out: SiderRow[] = [];
+    for (let b = 0; b < buckets.length; b++) {
+      if (buckets[b].length === 0) {
+        continue;
+      }
+      const header = new SiderRow();
+      header.isHeader = true;
+      header.label = headerLabels[b];
+      header.key = `h_${b}`;
+      out.push(header);
+      for (const r of buckets[b]) {
+        out.push(r);
+      }
+    }
+    return out;
   }
 
   /** 会话 ⋯ 菜单（鸿蒙 bindMenu，替代网页式按钮对话框） */
@@ -218,35 +245,36 @@ export struct Sider {
     this.showRenameSheet = true;
   }
 
+  /** 删除确认：用 UIContext.showAlertDialog（同步弹出，回调直连，避免 Promise 失败被吞掉） */
   private confirmDelete(s: Session): void {
-    const buttons: Array<promptAction.Button> = [];
-    const bCancel: promptAction.Button = { text: I18n.translate('cancel'), color: '#66000000' };
-    const bDelete: promptAction.Button = { text: I18n.translate('delete'), color: '#E84026' };
-    buttons.push(bCancel);
-    buttons.push(bDelete);
-    const options: promptAction.ShowDialogOptions = {
+    this.getUIContext().showAlertDialog({
       title: I18n.translate('deleteSessionModalContentTitle'),
       message: I18n.translate('deleteSessionWithFilesDescription'),
-      buttons: buttons,
       alignment: DialogAlignment.Center,
-    };
-    try {
-      this.getUIContext().getPromptAction().showDialog(options).then((result) => {
-        if (result.index === 1) {
-          this.store.deleteSession(s.id);
-        }
-      });
-    } catch (err) {
-      // 忽略
-    }
+      autoCancel: true,
+      secondaryButton: {
+        value: I18n.translate('cancel'),
+        fontColor: $r('app.color.text_secondary'),
+        action: (): void => {
+        },
+      },
+      primaryButton: {
+        value: I18n.translate('delete'),
+        fontColor: $r('app.color.warning'),
+        action: (): void => {
+          this.store.deleteSession(s.id).catch((err: object) => {
+            Logger.warn('Sider', `delete failed: ${JSON.stringify(err)}`);
+          });
+        },
+      },
+    });
   }
 }
 
-class SiderGroup {
-  label: string;
-  items: Session[] = [];
-
-  constructor(label: string) {
-    this.label = label;
-  }
+/** 拍平后的列表行：组头或会话 */
+class SiderRow {
+  isHeader: boolean = false;
+  label: string = '';
+  session: Session | null = null;
+  key: string = '';
 }
