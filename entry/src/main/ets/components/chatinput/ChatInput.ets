@@ -10,7 +10,10 @@ import { ModelInfo } from '../../model/ModelInfo';
 import { Logger } from '../../common/Logger';
 import { promptAction } from '@kit.ArkUI';
 
-/** 底部输入区：圆角容器 + TextArea + 发送/停止按钮（鸿蒙设计语言） */
+/**
+ * 底部输入面板（仿 DeepSeek 官方 App）：
+ * 单张圆角毛玻璃卡片 = 上输入区 + 下工具行（chips 居左，圆钮居右）。
+ */
 @ComponentV2
 export struct ChatInput {
   @Param text: string = '';
@@ -26,8 +29,12 @@ export struct ChatInput {
   @Param onCompact: () => void = () => {};
   settings: SettingsStore = SettingsStore.get();
   @Local voiceActive: boolean = false;
+  /** 附件面板（拍照/相册/文件）展开状态 */
+  @Local attachPanelOpen: boolean = false;
   @Param files: FileAttachment[] = [];
-  @Param onPickFiles: () => void = () => {};
+  @Param onCapture: () => void = () => {};
+  @Param onPickPhotos: () => void = () => {};
+  @Param onPickDocs: () => void = () => {};
   @Param onRemoveFile: (f: FileAttachment) => void = () => {};
   /** 上下文用量：可见链最近一轮 input+cache+output（0 表示尚无回执） */
   @Param contextUsed: number = 0;
@@ -41,8 +48,8 @@ export struct ChatInput {
   attachChip(f: FileAttachment) {
     Row({ space: 4 }) {
       Image(f.isImage ? $r('app.media.ic_public_picture') : $r('app.media.ic_public_file'))
-        .width(14)
-        .height(14)
+        .width(15)
+        .height(15)
         .fillColor($r('app.color.text_secondary'))
       Text(f.name)
         .fontSize(Fonts.caption())
@@ -63,20 +70,196 @@ export struct ChatInput {
     .borderRadius(Dim.radiusS)
   }
 
+  /**
+   * 功能 chip：图标 + 文字（开启=蓝底蓝字，关闭=灰底灰字）。
+   * 开关状态经 on() 读取而非按值传参：@Builder 按值参数不随状态刷新
+   */
   @Builder
-  toggle(labelKey: string, on: boolean, onTap: () => void) {
-    Row({ space: 4 }) {
+  toggle(labelKey: string, icon: Resource, on: () => boolean, onTap: () => void) {
+    Row({ space: 5 }) {
+      Image(icon)
+        .width(15)
+        .height(15)
+        .fillColor(on() ? $r('app.color.brand_activated') : $r('app.color.text_tertiary'))
       Text(I18n.translate(labelKey))
         .fontSize(Fonts.body3())
-        .fontColor(on ? $r('app.color.brand_activated') : $r('app.color.text_tertiary'))
+        .fontColor(on() ? $r('app.color.brand_activated') : $r('app.color.text_tertiary'))
     }
-    .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-    .borderRadius(14)
-    .backgroundColor(on ? $r('app.color.thinking_bg') : $r('app.color.component_normal'))
+    .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+    .borderRadius(18)
+    .backgroundColor(on() ? $r('app.color.thinking_bg') : $r('app.color.component_normal'))
     .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.93 })
     .onClick(() => {
       onTap();
     })
+  }
+
+  /** 线框圆钮（附件 / 语音），仿官方 + 与按住说话按钮 */
+  @Builder
+  outlineCircle(icon: Resource, onTap: () => void) {
+    Row() {
+      Image(icon)
+        .width(18)
+        .height(18)
+        .fillColor($r('app.color.text_secondary'))
+    }
+    .width(29)
+    .height(29)
+    .borderRadius(14.5)
+    .border({ width: 1.5, color: $r('app.color.text_secondary') })
+    .justifyContent(FlexAlign.Center)
+    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
+    .onClick(() => {
+      onTap();
+    })
+  }
+
+  /** 附件圆钮：面板展开时变为 X（状态在 builder 体内经 this 读取才可刷新） */
+  @Builder
+  attachCircle() {
+    Row() {
+      Image(this.attachPanelOpen ? $r('app.media.ic_public_cancel') : $r('app.media.ic_public_add'))
+        .width(18)
+        .height(18)
+        .fillColor($r('app.color.text_secondary'))
+    }
+    .width(29)
+    .height(29)
+    .borderRadius(14.5)
+    .border({ width: 1.5, color: $r('app.color.text_secondary') })
+    .justifyContent(FlexAlign.Center)
+    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
+    .onClick(() => {
+      this.toggleAttachPanel();
+    })
+  }
+
+  /** 附件面板动作卡：图标 + 文字（仿官方三宫格） */
+  @Builder
+  attachAction(icon: Resource, labelKey: string, onTap: () => void) {
+    Column({ space: 10 }) {
+      Image(icon)
+        .width(22)
+        .height(22)
+        .fillColor($r('app.color.text_primary'))
+      Text(I18n.translate(labelKey))
+        .fontSize(Fonts.body2())
+        .fontColor($r('app.color.text_primary'))
+    }
+    .layoutWeight(1)
+    .height(80)
+    .justifyContent(FlexAlign.Center)
+    .backgroundColor($r('app.color.component_normal'))
+    .borderRadius(14)
+    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.96 })
+    .onClick(() => {
+      onTap();
+    })
+  }
+
+  /** 附件面板：拍照 / 相册 / 文件 */
+  @Builder
+  attachPanel() {
+    Row({ space: 8 }) {
+      this.attachAction($r('app.media.ic_public_camera'), 'attachPhoto', (): void => {
+        this.toggleAttachPanel(false);
+        this.onCapture();
+      })
+      this.attachAction($r('app.media.ic_public_picture'), 'attachAlbum', (): void => {
+        this.toggleAttachPanel(false);
+        this.onPickPhotos();
+      })
+      this.attachAction($r('app.media.ic_public_file'), 'attachFile', (): void => {
+        this.toggleAttachPanel(false);
+        this.onPickDocs();
+      })
+    }
+    .width('100%')
+    .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 24 }))
+      .animation({ duration: 220, curve: Curve.Smooth }))
+  }
+
+  /** 发送圆钮（品牌蓝底白箭头） */
+  @Builder
+  sendCircle() {
+    Row() {
+      Image($r('app.media.ic_public_arrow_up_0'))
+        .width(18)
+        .height(18)
+        .fillColor($r('app.color.text_primary_contrary'))
+    }
+    .width(29)
+    .height(29)
+    .borderRadius(14.5)
+    .backgroundColor($r('app.color.brand'))
+    .justifyContent(FlexAlign.Center)
+    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
+    .onClick(() => {
+      this.send();
+    })
+  }
+
+  /** 停止圆钮（流式期间） */
+  @Builder
+  stopCircle() {
+    Row() {
+      Rect()
+        .width(10)
+        .height(10)
+        .fill($r('app.color.text_primary'))
+    }
+    .width(29)
+    .height(29)
+    .borderRadius(14.5)
+    .border({ width: 1.5, color: $r('app.color.text_secondary') })
+    .justifyContent(FlexAlign.Center)
+    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
+    .onClick(() => {
+      this.onStop();
+    })
+  }
+
+  /** 编辑模式提示条 */
+  @Builder
+  editBar() {
+    Row({ space: 8 }) {
+      Text(I18n.translate('editMessage'))
+        .fontSize(Fonts.body3())
+        .fontColor($r('app.color.brand_activated'))
+        .layoutWeight(1)
+      Image($r('app.media.ic_public_close'))
+        .width(16)
+        .height(16)
+        .fillColor($r('app.color.text_tertiary'))
+        .onClick(() => {
+          this.onCancelEdit();
+        })
+    }
+    .padding({ left: 14, right: 14, top: 10 })
+    .width('100%')
+  }
+
+  /** 输入区（透明 TextArea） */
+  @Builder
+  inputArea() {
+    TextArea({
+      text: this.text,
+      placeholder: I18n.translate('chatInputPlaceholderChat'),
+    })
+      .constraintSize({ minHeight: 44, maxHeight: 140 })
+      .fontSize(Fonts.body1())
+      .fontColor($r('app.color.text_primary'))
+      .placeholderColor($r('app.color.text_tertiary'))
+        .placeholderFont({ size: Fonts.body1() })
+        .backgroundColor(Color.Transparent)
+        .padding({ left: 10, right: 10, top: 6, bottom: 2 })
+      .onChange((value: string) => {
+        this.onTextChange(value);
+      })
+      .onFocus(() => {
+        // 点输入框：收起附件面板
+        this.toggleAttachPanel(false);
+      })
   }
 
   /** 用量明细悬浮窗：占比环 + token 统计 */
@@ -159,177 +342,151 @@ export struct ChatInput {
   }
 
   build() {
-    Column() {
-      if (this.voiceActive) {
-        // 语音输入激活面板
-        VoiceButton({
-          onText: (text: string) => {
-            this.switchVoice(false);
-            this.onTextChange(text);
-          },
-          onDismiss: () => {
-            this.switchVoice(false);
-          },
-        })
-        .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 30 }))
-          .animation({ duration: 260, curve: Curve.Smooth }))
-      } else if (!this.settings.customModel) {
-        // 自定义模型：不显示 DeepSeek 专有工具（语音/思考/搜索/附件/用量环）
-        // 工具行：语音 / 深度思考 / 智能搜索 / 附件
-        Row({ space: 8 }) {
-          Image($r('app.media.ic_public_voice'))
-            .width(24)
-            .height(24)
-            .padding(1)
-            .fillColor($r('app.color.text_secondary'))
-            .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
-            .onClick(() => {
-              this.switchVoice(true);
-            })
-          this.toggle('thinkingSwitch', this.settings.thinking, (): void => {
-            this.settings.setThinking(!this.settings.thinking);
+    Column({ space: 10 }) {
+      Column() {
+        if (this.voiceActive) {
+          // 语音输入面板（替换面板内容）
+          VoiceButton({
+            onText: (text: string) => {
+              this.switchVoice(false);
+              this.onTextChange(text);
+            },
+            onDismiss: () => {
+              this.switchVoice(false);
+            },
           })
-          this.toggle('search', this.settings.search, (): void => {
-            this.settings.setSearch(!this.settings.search);
-          })
-          Image($r('app.media.ic_public_add'))
-            .width(24)
-            .height(24)
-            .padding(1)
-            .fillColor($r('app.color.text_secondary'))
-            .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
-            .onClick(() => {
-              this.onPickFiles();
-            })
-          Blank()
-          // 上下文占用占比环：点击弹出用量明细
-          DataPanel({
-            values: [this.contextUsed],
-            max: this.contextLimit,
-            type: DataPanelType.Circle,
-          })
-            .width(22)
-            .height(22)
-            .strokeWidth(3)
-            .valueColors([$r('app.color.brand')])
-            .trackBackgroundColor($r('app.color.component_normal'))
-            .onClick(() => {
-              this.showUsagePopup = !this.showUsagePopup;
-            })
-            .bindPopup(!!this.showUsagePopup, {
-              builder: (): void => {
-                this.usagePopup()
-              },
-              placement: Placement.Top,
-              popupColor: $r('app.color.dialog_bg'),
-              enableArrow: true,
-              autoCancel: true,
-            })
-        }
-        .width('100%')
-        .padding({ left: Dim.pagePadding, right: Dim.pagePadding, bottom: 4 })
-      }
-
-      // 草稿附件 chips
-      if (this.files.length > 0) {
-        Flex({ wrap: FlexWrap.Wrap }) {
-          ForEach(this.files, (f: FileAttachment) => {
-            this.attachChip(f)
-          }, (f: FileAttachment) => f.id)
-        }
-        .width('100%')
-        .padding({ left: Dim.pagePadding, right: Dim.pagePadding, bottom: 4 })
-      }
-
-      if (this.editing) {
-        // 编辑模式提示条
-        Row({ space: 8 }) {
-          Text(I18n.translate('editMessage'))
-            .fontSize(Fonts.body3())
-            .fontColor($r('app.color.brand_activated'))
+          .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 30 }))
+            .animation({ duration: 260, curve: Curve.Smooth }))
+        } else if (this.settings.customModel) {
+          // 自定义模型：仅输入 + 发送（DeepSeek 专有工具不可用）
+          if (this.editing) {
+            this.editBar()
+          }
+          Row({ space: 8 }) {
+            Column() {
+              this.inputArea()
+            }
             .layoutWeight(1)
-          Image($r('app.media.ic_public_close'))
-            .width(16)
-            .height(16)
-            .fillColor($r('app.color.text_tertiary'))
-            .onClick(() => {
-              this.onCancelEdit();
-            })
-        }
-        .padding({ left: 16, right: 16, top: 6 })
-      }
-      Row({ space: 8 }) {
-        TextArea({
-          text: this.text,
-          placeholder: I18n.translate('chatInputPlaceholderChat'),
-        })
-          .constraintSize({ minHeight: 40, maxHeight: 120 })
-          .fontSize(Fonts.body1())
-          .fontColor($r('app.color.text_primary'))
-          .placeholderColor($r('app.color.text_tertiary'))
-          .placeholderFont({ size: 16 })
-          .backgroundColor(Color.Transparent)
-          .fontFamily(Fonts.family())
-          .padding({ left: 4, right: 4 })
-          .layoutWeight(1)
-          .onChange((value: string) => {
-            this.onTextChange(value);
-          })
 
-        if (this.streaming) {
-          if (this.canSend()) {
-            Image($r('app.media.ic_public_arrow_up_0'))
-              .width(32)
-              .height(32)
-              .padding(5)
-              .fillColor($r('app.color.brand'))
-              .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
-              .onClick(() => {
-                this.send();
-              })
+            if (this.streaming) {
+              if (this.canSend()) {
+                this.sendCircle()
+              }
+              this.stopCircle()
+            } else {
+              this.sendCircle()
+            }
           }
-          Row() {
-            Rect()
-              .width(10)
-              .height(10)
-              .fill($r('app.color.text_primary'))
-          }
-          .width(36)
-          .height(36)
-          .borderRadius(18)
-          .backgroundColor($r('app.color.component_normal'))
-          .justifyContent(FlexAlign.Center)
-          .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
-          .onClick(() => {
-            this.onStop();
-          })
+          .alignItems(VerticalAlign.Bottom)
+          .width('100%')
+          .padding({ left: 10, right: 10, top: 2, bottom: 8 })
         } else {
-          Image($r('app.media.ic_public_arrow_up_0'))
-            .width(36)
-            .height(36)
-            .padding(6)
-            .fillColor(this.canSend() ? $r('app.color.brand') : $r('app.color.text_fourth'))
-            .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
-            .onClick(() => {
-              this.send();
+          // 草稿附件 chips
+          if (this.files.length > 0) {
+            Flex({ wrap: FlexWrap.Wrap }) {
+              ForEach(this.files, (f: FileAttachment) => {
+                this.attachChip(f)
+              }, (f: FileAttachment) => f.id)
+            }
+            .width('100%')
+            .padding({ left: 14, right: 14, top: 12, bottom: 2 })
+          }
+          if (this.editing) {
+            this.editBar()
+          }
+
+          this.inputArea()
+
+          // 工具行：chips 居左；用量环 / 附件 / 语音|发送 居右
+          Row({ space: 8 }) {
+            this.toggle('thinkingSwitch', $r('app.media.ic_public_favor'), (): boolean => this.settings.thinking,
+              (): void => {
+                this.settings.setThinking(!this.settings.thinking);
+              })
+            this.toggle('search', $r('app.media.ic_public_search'), (): boolean => this.settings.search,
+              (): void => {
+                this.settings.setSearch(!this.settings.search);
+              })
+            Blank()
+            // 上下文占用占比环：点击弹出用量明细
+            DataPanel({
+              values: [this.contextUsed],
+              max: this.contextLimit,
+              type: DataPanelType.Circle,
             })
+              .width(22)
+              .height(22)
+              .strokeWidth(3)
+              .valueColors([$r('app.color.brand')])
+              .trackBackgroundColor($r('app.color.component_normal'))
+              .onClick(() => {
+                this.showUsagePopup = !this.showUsagePopup;
+              })
+              .bindPopup(!!this.showUsagePopup, {
+                builder: (): void => {
+                  this.usagePopup()
+                },
+                placement: Placement.Top,
+                popupColor: $r('app.color.dialog_bg'),
+                enableArrow: true,
+                autoCancel: true,
+              })
+            this.attachCircle()
+            if (this.streaming) {
+              if (this.canSend()) {
+                this.sendCircle()
+              }
+              this.stopCircle()
+            } else if (this.canSend()) {
+              this.sendCircle()
+            } else {
+              this.outlineCircle($r('app.media.ic_public_voice'), (): void => {
+                this.switchVoice(true);
+              })
+            }
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Center)
+          .padding({ left: 10, right: 10, top: 6, bottom: 8 })
         }
       }
-      .alignItems(VerticalAlign.Bottom)
-      .padding({ left: 12, right: 8, top: 6, bottom: 6 })
-      .backgroundColor($r('app.color.text_field_bg'))
-      .borderRadius(Dim.radiusL)
-      .constraintSize({ maxWidth: Dim.inputMaxWidth })
       .width('100%')
+      .margin({ bottom: 2 })
+      .padding({ top: 4 })
+      .alignItems(HorizontalAlign.Center)
+      .borderRadius(28)
+      // 毛玻璃：半透明底色（blur_input 72% 不透明度）+ 组件实时模糊，
+      // 消息从面板下方滚过时透出内容（与顶部胶囊同款质感）
+      .backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
+      .backgroundColor($r('app.color.blur_input'))
+      .shadow({ radius: 16, color: 'rgba(0,0,0,0.06)', offsetY: -4 })
+
+      if (this.attachPanelOpen && !this.voiceActive) {
+        this.attachPanel()
+      }
     }
-    .padding({ left: Dim.pagePadding, right: Dim.pagePadding, bottom: 8, top: 4 })
     .width('100%')
     .alignItems(HorizontalAlign.Center)
+  }
+
+  /** 附件面板开合（展开前收起键盘；含进出场动画作用域） */
+  private toggleAttachPanel(force?: boolean): void {
+    const next = force === undefined ? !this.attachPanelOpen : force;
+    if (next === this.attachPanelOpen) {
+      return;
+    }
+    if (next) {
+      this.getUIContext().getFocusController().clearFocus();
+    }
+    this.getUIContext().animateTo({ duration: 220, curve: Curve.Smooth }, () => {
+      this.attachPanelOpen = next;
+    });
   }
 
   /** 语音面板开关（含进出场动画作用域） */
   private switchVoice(on: boolean): void {
     this.getUIContext().animateTo({ duration: 260, curve: Curve.Smooth }, () => {
+      this.attachPanelOpen = false;
       this.voiceActive = on;
     });
   }
@@ -362,6 +519,7 @@ export struct ChatInput {
     if (value === '') {
       return;
     }
+    this.toggleAttachPanel(false);
     KeyVault.load(AppContextHolder.get()).then((key: string | null) => {
       if (key === null || key === '') {
         Logger.warn('ChatInput', 'no api key');

@@ -17,6 +17,7 @@ import {
 import { ChatStore } from '../../service/chat/ChatStore';
 import { ReplyEngine } from '../../service/chat/ReplyEngine';
 import { MarkdownView } from '../markdown/MarkdownView';
+import { MarkdownParser } from '../markdown/MarkdownParser';
 import { AppContextHolder } from '../../common/AppContextHolder';
 import { common, Context, Want } from '@kit.AbilityKit';
 import { Logger } from '../../common/Logger';
@@ -24,6 +25,7 @@ import { SpeechApi } from '../../service/speech/SpeechApi';
 import { TtsPlayer } from '../../service/speech/TtsPlayer';
 import { KeyVault } from '../../prefs/KeyVault';
 import { SettingsStore } from '../../prefs/SettingsStore';
+import { ApiError } from '../../service/api/ApiError';
 
 /** 全局唯一 TTS 播放器（新朗读会停止旧的） */
 class TtsActive {
@@ -51,37 +53,127 @@ export struct MessageList {
   @Param onEdit: (m: UserMessage) => void = () => {};
   private store: ChatStore = ChatStore.get();
   private scroller: Scroller = new Scroller();
+  /** 快速定位条：滑块高度/位置与是否显示 */
+  @Local locateThumbH: number = 0;
+  @Local locateThumbY: number = 0;
+  @Local locateOn: boolean = false;
+  private viewportH: number = 0;
+  private thumbHolding: boolean = false;
+  private thumbDragBase: number = 0;
+
+  /** 列表最大可滚动距离（vp）：末项底边 + 当前偏移 - 视口高 */
+  private maxScrollOffset(): number {
+    const n = this.visible.length;
+    if (n === 0 || this.viewportH <= 0) {
+      return 0;
+    }
+    try {
+      const last = this.scroller.getItemRect(n - 1);
+      const cur = this.scroller.currentOffset().yOffset;
+      return Math.max(last.y + last.height + cur - this.viewportH, 0);
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  /** 依据当前滚动位置刷新定位滑块 */
+  private refreshLocate(): void {
+    if (this.thumbHolding) {
+      return;
+    }
+    const vh = this.viewportH;
+    const max = this.maxScrollOffset();
+    this.locateOn = max > 24;
+    if (!this.locateOn || vh <= 0) {
+      return;
+    }
+    const pad = 10;
+    const track = vh - pad * 2;
+    const th = Math.max(Math.min(vh * vh / (max + vh), track), 40);
+    const cur = this.scroller.currentOffset().yOffset;
+    this.locateThumbH = th;
+    this.locateThumbY = pad + (max > 0 ? cur / max : 0) * (track - th);
+  }
 
   build() {
-    List({ scroller: this.scroller, space: 12 }) {
-      ForEach(this.visible, (m: Message) => {
-        ListItem() {
-          Column() {
-            if (isUser(m)) {
-              this.userRow(m as UserMessage)
-            } else if (isAssistant(m)) {
-              this.assistantRow(m as AssistantMessage)
+    Stack({ alignContent: Alignment.TopEnd }) {
+      List({ scroller: this.scroller, space: 12 }) {
+        ForEach(this.visible, (m: Message) => {
+          ListItem() {
+            Column() {
+              if (isUser(m)) {
+                this.userRow(m as UserMessage)
+              } else if (isAssistant(m)) {
+                this.assistantRow(m as AssistantMessage)
+              }
+              if (m.id !== '' && m.id === this.session.compactAnchorId) {
+                Text(I18n.translate('compactMarker'))
+                  .fontSize(Fonts.caption())
+                  .fontColor($r('app.color.text_tertiary'))
+                  .width('100%')
+                  .textAlign(TextAlign.Center)
+                  .margin({ top: 6 })
+              }
             }
-            if (m.id !== '' && m.id === this.session.compactAnchorId) {
-              Text(I18n.translate('compactMarker'))
-                .fontSize(Fonts.caption())
-                .fontColor($r('app.color.text_tertiary'))
-                .width('100%')
-                .textAlign(TextAlign.Center)
-                .margin({ top: 6 })
-            }
+            .width('100%')
           }
-          .width('100%')
+          .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 20 }))
+            .animation({ duration: 280, curve: Curve.Smooth }))
+        }, (m: Message) => m.id)
+      }
+      .width('100%')
+      .height('100%')
+      .padding({ left: Dim.pagePadding, right: Dim.pagePadding, top: 12, bottom: this.bottomPad })
+      .scrollBar(BarState.Off)
+      .edgeEffect(EdgeEffect.Spring)
+      .onDidScroll(() => {
+        this.refreshLocate();
+      })
+      .onAreaChange((_o: Area, nv: Area) => {
+        this.viewportH = Number(nv.height);
+        this.refreshLocate();
+      })
+
+      // 快速定位条：拖动滑块按比例跳转消息位置（仅内容可滚动时出现）
+      if (this.locateOn) {
+        Column() {
+          Column()
+            .width(4)
+            .height(this.locateThumbH)
+            .borderRadius(2)
+            .backgroundColor(this.thumbHolding ? $r('app.color.text_secondary') : $r('app.color.text_fourth'))
         }
-        .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 20 }))
-          .animation({ duration: 280, curve: Curve.Smooth }))
-      }, (m: Message) => m.id)
+        .width(20)
+        .height(this.locateThumbH + 16)
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+        .margin({ right: 1, top: Math.max(this.locateThumbY - 8, 0) })
+        .gesture(PanGesture({ fingers: 1, direction: PanDirection.Vertical, distance: 2 })
+          .onActionStart((_e: GestureEvent) => {
+            this.thumbHolding = true;
+            this.thumbDragBase = this.locateThumbY;
+          })
+          .onActionUpdate((e: GestureEvent) => {
+            const pad = 10;
+            const track = this.viewportH - pad * 2 - this.locateThumbH;
+            if (track <= 0) {
+              return;
+            }
+            const max = this.maxScrollOffset();
+            const ny = Math.min(Math.max(this.thumbDragBase + e.offsetY, pad), pad + track);
+            this.locateThumbY = ny;
+            this.scroller.scrollTo({ xOffset: 0, yOffset: (ny - pad) / track * max, animation: false });
+          })
+          .onActionEnd(() => {
+            this.thumbHolding = false;
+          })
+        )
+      }
     }
-    .layoutWeight(1)
     .width('100%')
-    .padding({ left: Dim.pagePadding, right: Dim.pagePadding, top: 12, bottom: this.bottomPad })
-    .scrollBar(BarState.Off)
-    .edgeEffect(EdgeEffect.Spring)
+    .height('100%')
+    // 列表视口延伸到物理上下边缘：底部留白不再被安全区分界线截断
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
 
   @Builder
@@ -111,19 +203,23 @@ export struct MessageList {
         }
         .width('100%')
       }
-      Row({ space: 4 }) {
+      // 气泡（右对齐）
+      Row() {
         Blank()
-        // 操作：编辑 / 复制
-        Image($r('app.media.ic_public_edit'))
-          .width(16)
-          .height(16)
-          .fillColor($r('app.color.text_tertiary'))
-          .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
-          .onClick(() => {
-            if (!this.isLocked(m)) {
-              this.onEdit(m);
-            }
-          })
+        Text(m.content)
+          .fontSize(Fonts.body1())
+          .fontColor($r('app.color.text_primary_contrary'))
+          .lineHeight(24)
+          .constraintSize({ maxWidth: `${Dim.bubbleMaxPercent}%` })
+          .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+          .backgroundColor(m.id === this.editingId ? $r('app.color.brand_pressed') : $r('app.color.brand'))
+          .borderRadius(Dim.radiusL)
+      }
+      .width('100%')
+
+      // 气泡下方操作行：复制 / 编辑（灰色小图标右对齐，官方排版一致）
+      Row({ space: 14 }) {
+        Blank()
         Image($r('app.media.ic_public_copy'))
           .width(16)
           .height(16)
@@ -137,18 +233,19 @@ export struct MessageList {
               Logger.warn('MessageList', `copy failed: ${JSON.stringify(err)}`);
             });
           })
-        Text(m.content)
-          .fontSize(Fonts.body1())
-          .fontColor($r('app.color.text_primary_contrary'))
-          .fontFamily(Fonts.family())
-          .lineHeight(24)
-          .constraintSize({ maxWidth: `${Dim.bubbleMaxPercent}%` })
-          .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-          .backgroundColor(m.id === this.editingId ? $r('app.color.brand_pressed') : $r('app.color.brand'))
-          .borderRadius(Dim.radiusL)
+        Image($r('app.media.ic_public_edit'))
+          .width(16)
+          .height(16)
+          .fillColor($r('app.color.text_tertiary'))
+          .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
+          .onClick(() => {
+            if (!this.isLocked(m)) {
+              this.onEdit(m);
+            }
+          })
       }
       .width('100%')
-      .alignItems(VerticalAlign.Bottom)
+      .margin({ top: 2, right: 4 })
     }
     .width('100%')
   }
@@ -244,18 +341,21 @@ struct AssistantBody {
   @Param onRegenerate: () => void = () => {};
   @Local thinkingOpen: boolean = false;
   @Local ttsPlaying: boolean = false;
+  /** 搜索来源抽屉展开态：默认收起 */
+  @Local sourcesOpen: boolean = false;
 
   build() {
     Column({ space: 8 }) {
-      // 思考折叠块
-      ForEach(this.thinkingBlocks(), (t: ThinkingPart) => {
-        Column() {
+      // 思考折叠块：智能搜索会产生多段 reasoning，合并为一个抽屉展示
+      if (this.thinkingBlocks().length > 0) {
+        Column({ space: 8 }) {
           Row({ space: 6 }) {
-            Image($r('app.media.ic_public_code'))
+            // 时钟图标：贴合“思考中/耗时”语义（原 code 方块图案不表意）
+            Image($r('app.media.ic_public_time_filled'))
               .width(16)
               .height(16)
               .fillColor($r('app.color.text_tertiary'))
-            Text(this.thinkingLabel(t))
+            Text(this.thinkingHeaderLabel())
               .fontSize(Fonts.body3())
               .fontColor($r('app.color.text_tertiary'))
             Blank()
@@ -267,76 +367,120 @@ struct AssistantBody {
           }
           .width('100%')
           .onClick(() => {
-            this.thinkingOpen = !this.thinkingOpen;
+            this.getUIContext().animateTo({ duration: 240, curve: Curve.Smooth }, (): void => {
+              this.thinkingOpen = !this.thinkingOpen;
+            });
           })
 
           if (this.thinkingOpen) {
-            Text(t.thinking)
-              .fontSize(Fonts.body3())
-              .lineHeight(20)
-              .fontColor($r('app.color.text_secondary'))
-              .padding({ top: 8 })
-              .width('100%')
+            Column({ space: 8 }) {
+              ForEach(this.thinkingBlocks(), (t: ThinkingPart) => {
+                Text(t.thinking)
+                  .fontSize(Fonts.body3())
+                  .lineHeight(20)
+                  .fontColor($r('app.color.text_secondary'))
+                  .width('100%')
+              }, (t: ThinkingPart) => `th_${t.startedAt}`)
+            }
+            .width('100%')
+            .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 8 }))
+              .animation({ duration: 240, curve: Curve.Smooth }))
           }
         }
         .padding(10)
         .backgroundColor($r('app.color.thinking_bg'))
         .borderRadius(Dim.radiusM)
         .width('100%')
-      }, (t: ThinkingPart) => `th_${t.startedAt}`)
+      }
 
-      ForEach(this.textBlocks(), (t: TextPart) => {
+      ForEach(this.displaySources(), (src: string, si: number) => {
         Column() {
           // 流式期间用纯文本保性能；结束后 Markdown 富渲染
           if (this.message.status === 'streaming') {
-            Text(t.text)
+            Text(src)
               .fontSize(Fonts.body1())
               .lineHeight(26)
               .fontColor($r('app.color.text_primary'))
-              .fontFamily(Fonts.family())
               .width('100%')
           } else {
-            MarkdownView({ source: t.text })
+            MarkdownView({ source: src })
           }
         }
         .width('100%')
-      }, (t: TextPart) => `tx_${t.text.length}_${t.citations.length}`)
+      }, (src: string, si: number) => `tx${si}_${src.length}`)
 
-      // 引用来源卡片（正文块 citations 汇总去重）
-      ForEach(this.citationCards(), (card: CitationCard, ci: number) => {
-        Row({ space: 8 }) {
-          Text(`${ci + 1}`)
-            .fontSize(Fonts.caption())
-            .fontColor($r('app.color.text_primary_contrary'))
-            .width(18)
-            .height(18)
-            .borderRadius(9)
-            .backgroundColor($r('app.color.brand'))
-            .textAlign(TextAlign.Center)
-          Column({ space: 2 }) {
-            Text(card.title)
+      // 引用来源：抽屉式收纳（默认收起，点标题展开），样式与思考折叠块一致
+      if (this.citationCards().length > 0) {
+        Column({ space: 8 }) {
+          Row({ space: 6 }) {
+            Image($r('app.media.ic_public_search'))
+              .width(16)
+              .height(16)
+              .fillColor($r('app.color.text_tertiary'))
+            Text(I18n.translate('sourcesCount', { 'count': `${this.citationCards().length}` }))
               .fontSize(Fonts.body3())
-              .fontColor($r('app.color.text_primary'))
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .width('100%')
-            Text(card.url)
-              .fontSize(Fonts.caption())
               .fontColor($r('app.color.text_tertiary'))
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .width('100%')
+            Blank()
+            Image($r('app.media.ic_public_arrow_right'))
+              .width(14)
+              .height(14)
+              .rotate({ angle: this.sourcesOpen ? 90 : 0 })
+              .fillColor($r('app.color.text_tertiary'))
           }
-          .layoutWeight(1)
+          .width('100%')
+          .onClick(() => {
+            this.getUIContext().animateTo({ duration: 240, curve: Curve.Smooth }, (): void => {
+              this.sourcesOpen = !this.sourcesOpen;
+            });
+          })
+
+          if (this.sourcesOpen) {
+            Column({ space: 8 }) {
+              ForEach(this.citationCards(), (card: CitationCard, ci: number) => {
+                Row({ space: 8 }) {
+                  Text(`${ci + 1}`)
+                    .fontSize(Fonts.caption())
+                    .fontColor($r('app.color.text_primary_contrary'))
+                    .width(18)
+                    .height(18)
+                    .borderRadius(9)
+                    .backgroundColor($r('app.color.brand'))
+                    .textAlign(TextAlign.Center)
+                  Column({ space: 2 }) {
+                    Text(card.title)
+                      .fontSize(Fonts.body3())
+                      .fontColor($r('app.color.text_primary'))
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      .width('100%')
+                    Text(card.url)
+                      .fontSize(Fonts.caption())
+                      .fontColor($r('app.color.text_tertiary'))
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      .width('100%')
+                  }
+                  .layoutWeight(1)
+                }
+                .width('100%')
+                .padding(8)
+                .backgroundColor($r('app.color.code_block_bg'))
+                .borderRadius(Dim.radiusS)
+                .onClick(() => {
+                  openUrl(card.url);
+                })
+              }, (card: CitationCard, ci: number) => `cite${ci}`)
+            }
+            .width('100%')
+            .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 8 }))
+              .animation({ duration: 240, curve: Curve.Smooth }))
+          }
         }
+        .padding(10)
+        .backgroundColor($r('app.color.thinking_bg'))
+        .borderRadius(Dim.radiusM)
         .width('100%')
-        .padding(8)
-        .backgroundColor($r('app.color.code_block_bg'))
-        .borderRadius(Dim.radiusS)
-        .onClick(() => {
-          openUrl(card.url);
-        })
-      }, (card: CitationCard, ci: number) => `cite${ci}`)
+      }
 
       if (this.message.status === 'streaming' && this.textBlocks().length === 0
         && this.thinkingBlocks().length === 0) {
@@ -385,7 +529,7 @@ struct AssistantBody {
                 Logger.warn('MessageList', `copy failed: ${JSON.stringify(err)}`);
               });
             })
-          if (!SettingsStore.get().customModel) {
+          if (!SettingsStore.get().customModel && SettingsStore.get().ttsEnabled) {
             Image(this.ttsPlaying ? $r('app.media.ic_public_sound_off') : $r('app.media.ic_public_sound'))
               .width(16)
               .height(16)
@@ -421,6 +565,36 @@ struct AssistantBody {
     return out;
   }
 
+  /** 文本块渲染源：流式分段把句末标点单独切开（独立段或下一段开头）时并回前一段，避免单独成行 */
+  private displaySources(): string[] {
+    const out: string[] = [];
+    for (const b of this.message.blocks) {
+      if (b.type !== 'text') {
+        continue;
+      }
+      let t = b.textPart.text;
+      if (out.length > 0) {
+        // 开头独立成行的纯标点：挪回上一段末尾
+        const nl = t.indexOf('\n');
+        const firstLine = (nl < 0 ? t : t.substring(0, nl)).trim();
+        if (firstLine !== '' && MarkdownParser.isPunctOnlyText(firstLine)) {
+          out[out.length - 1] += (out[out.length - 1].endsWith('\n') ? '' : '\n\n') + firstLine;
+          t = nl < 0 ? '' : t.substring(nl + 1);
+          if (t.trim() === '') {
+            continue;
+          }
+        }
+        // 整段纯标点：并入上一段
+        if (MarkdownParser.isPunctOnlyText(t)) {
+          out[out.length - 1] += (out[out.length - 1].endsWith('\n') ? '' : '\n\n') + t;
+          continue;
+        }
+      }
+      out.push(t);
+    }
+    return out;
+  }
+
   private textBlocks(): TextPart[] {
     const out: TextPart[] = [];
     for (const b of this.message.blocks) {
@@ -439,12 +613,40 @@ struct AssistantBody {
     return I18n.translate('messageThinking');
   }
 
+  /** 合并思考头标题：任一段未结束显示“正在思考”，否则显示首段开始到末段结束的总时长 */
+  private thinkingHeaderLabel(): string {
+    const parts = this.thinkingBlocks();
+    let running = false;
+    let start = 0;
+    let end = 0;
+    for (const t of parts) {
+      if (t.startedAt > 0 && (start === 0 || t.startedAt < start)) {
+        start = t.startedAt;
+      }
+      if (t.endedAt === 0) {
+        running = true;
+      }
+      if (t.endedAt > end) {
+        end = t.endedAt;
+      }
+    }
+    if (running || end === 0 || start === 0) {
+      return I18n.translate('messageThinking');
+    }
+    const seconds = Math.max(1, Math.round((end - start) / 1000));
+    return I18n.translate('messageThinkDuration', { 'count': `${seconds}` });
+  }
+
   private errorText(): string {
     const err = this.message.error;
     if (err === null) {
       return I18n.translate('unknownError');
     }
-    return I18n.translate('apiKeyVerificationFailed', { 'message': err.message });
+    const key = ApiError.replyKeyFor(err.kind, err.status);
+    if (key === 'requestFailed') {
+      return I18n.translate(key, { 'message': err.message });
+    }
+    return I18n.translate(key);
   }
 
   /** 朗读 / 停止朗读（TTS 流式播放） */
