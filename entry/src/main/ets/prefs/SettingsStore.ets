@@ -15,11 +15,11 @@ const KEY_LOCALE: string = 'chat-demo:locale';
 const KEY_LOCATION: string = 'chat-demo:location';
 const KEY_THEME: string = 'chat-demo:theme-preference';
 const KEY_TTS_VOICE: string = 'chat-demo:tts-voice';
+const KEY_TTS_ENABLED: string = 'chat-demo:tts-enabled';
 const KEY_THINKING: string = 'chat-demo:thinking';
 const KEY_MODEL: string = 'chat-demo:model';
 const KEY_PERSONALIZATION: string = 'chat-demo:personalization';
 const KEY_FONT_SCALE: string = 'chat-demo:font-scale';
-const KEY_FONT_FAMILY: string = 'chat-demo:font-family';
 const KEY_NOTIFY_ON_REPLY: string = 'chat-demo:notify-on-reply';
 const KEY_LIVE_VIEW: string = 'chat-demo:live-view';
 
@@ -30,8 +30,6 @@ const FONT_SCALES: Record<string, number> = {
   'large': 1.15,
   'xl': 1.3,
 };
-/** 允许的字体族（'' = 跟随系统） */
-const FONT_FAMILIES: string[] = ['', 'sans-serif', 'serif', 'monospace'];
 const KEY_THINKING_EFFORT: string = 'chat-demo:thinking-effort';
 const KEY_SEARCH: string = 'chat-demo:search';
 const KEY_SIDER_COLLAPSED: string = 'chat-demo:sider-collapsed';
@@ -51,6 +49,8 @@ export class SettingsStore {
   @Trace locale: Locale = 'zh-CN';
   @Trace themePreference: ThemePreference = 'system';
   @Trace ttsVoice: TtsVoice = 'stella';
+  /** 朗读总开关：关闭后消息不出现朗读按钮 */
+  @Trace ttsEnabled: boolean = true;
   @Trace thinking: boolean = false;
   /** 思考强度，深度思考开启时随请求发送 output_config.effort */
   @Trace thinkingEffort: ThinkingEffort = 'high';
@@ -58,8 +58,6 @@ export class SettingsStore {
   @Trace personalization: string = '';
   /** 字号档位：small | standard | large | xl */
   @Trace fontScale: string = 'standard';
-  /** 字体族：'' 跟随系统 | sans-serif | serif | monospace */
-  @Trace fontFamily: string = '';
   /** 回复完成/失败时（应用在后台）发系统通知 */
   @Trace notifyOnReply: boolean = false;
   /** 流式回复期间显示实况窗（灵动岛）胶囊 */
@@ -104,14 +102,13 @@ export class SettingsStore {
       }
       this.themePreference = (this.store.getSync(KEY_THEME, 'system') as ThemePreference);
       this.ttsVoice = (this.store.getSync(KEY_TTS_VOICE, 'stella') as TtsVoice) === 'tide' ? 'tide' : 'stella';
+      this.ttsEnabled = this.store.getSync(KEY_TTS_ENABLED, true) as boolean;
       this.thinking = this.store.getSync(KEY_THINKING, false) as boolean;
       const savedEffort = this.store.getSync(KEY_THINKING_EFFORT, 'high') as string;
       this.thinkingEffort = (savedEffort === 'low' || savedEffort === 'max') ? savedEffort : 'high';
       this.personalization = (this.store.getSync(KEY_PERSONALIZATION, '') as string).trim();
       const savedScale = this.store.getSync(KEY_FONT_SCALE, 'standard') as string;
       this.fontScale = FONT_SCALES[savedScale] !== undefined ? savedScale : 'standard';
-      const savedFamily = this.store.getSync(KEY_FONT_FAMILY, '') as string;
-      this.fontFamily = FONT_FAMILIES.indexOf(savedFamily) >= 0 ? savedFamily : '';
       this.notifyOnReply = this.store.getSync(KEY_NOTIFY_ON_REPLY, false) as boolean;
       this.liveViewOnReply = this.store.getSync(KEY_LIVE_VIEW, false) as boolean;
       this.search = this.store.getSync(KEY_SEARCH, false) as boolean;
@@ -180,6 +177,11 @@ export class SettingsStore {
     this.put(KEY_TTS_VOICE, voice);
   }
 
+  setTtsEnabled(on: boolean): void {
+    this.ttsEnabled = on;
+    this.put(KEY_TTS_ENABLED, on);
+  }
+
   setThinking(on: boolean): void {
     this.thinking = on;
     this.put(KEY_THINKING, on);
@@ -203,11 +205,6 @@ export class SettingsStore {
   setFontScale(scale: string): void {
     this.fontScale = FONT_SCALES[scale] !== undefined ? scale : 'standard';
     this.put(KEY_FONT_SCALE, this.fontScale);
-  }
-
-  setFontFamily(family: string): void {
-    this.fontFamily = FONT_FAMILIES.indexOf(family) >= 0 ? family : '';
-    this.put(KEY_FONT_FAMILY, this.fontFamily);
   }
 
   setNotifyOnReply(on: boolean): void {

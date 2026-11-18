@@ -30,9 +30,9 @@ export class PeakPeriod {
     [14 * 60, 18 * 60],
   ];
 
-  /** 任意时刻 → 北京时间墙钟（用 UTC 读取字段） */
+  /** 任意时刻 → 北京时间墙钟（+8h 后用 UTC 读取字段；与设备时区无关） */
   private static beijingMs(now: Date): number {
-    return now.getTime() + (now.getTimezoneOffset() + 480) * 60000;
+    return now.getTime() + 480 * 60000;
   }
 
   private static isHoliday(y: number, mo: number, d: number): boolean {

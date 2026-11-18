@@ -1,7 +1,7 @@
 import { SettingsStore } from '../prefs/SettingsStore';
 
 /**
- * 字体助手：全局字号缩放 + 字体族，读取设置即时生效。
+ * 字体助手：全局字号缩放，读取设置即时生效。
  * 替代 $r('app.float.font_*') 资源引用（资源无法运行时缩放）。
  * 基准值与 float.json 一致（fp）。
  */
@@ -9,11 +9,6 @@ export class Fonts {
   /** 当前缩放系数 */
   static scale(): number {
     return SettingsStore.get().fontScaleValue();
-  }
-
-  /** 字体族；'' 表示跟随系统 */
-  static family(): string {
-    return SettingsStore.get().fontFamily;
   }
 
   static headline6(): number {
