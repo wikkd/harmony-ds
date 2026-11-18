@@ -33,7 +33,6 @@ export struct PersonaPage {
             .placeholderColor($r('app.color.text_tertiary'))
             .placeholderFont({ size: 14 })
             .backgroundColor($r('app.color.text_field_sub_bg'))
-            .fontFamily(Fonts.family())
             .borderRadius(Dim.radiusM)
             .padding(12)
             .maxLength(2000)
@@ -84,6 +83,8 @@ export struct PersonaPage {
     }
     .title(I18n.translate('personalization'))
     .backgroundColor($r('app.color.app_bg'))
+    // 底色延伸进手势条避让区，页底不露分界线
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
   }
 
   private toastSaved(): void {

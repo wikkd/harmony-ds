@@ -2,20 +2,13 @@ import { Fonts } from '../../common/Fonts';
 import { I18n } from '../../common/I18n';
 import { Dim } from '../../common/DesignTokens';
 import { SettingsStore } from '../../prefs/SettingsStore';
-import { KeyVault } from '../../prefs/KeyVault';
-import { ApiClient } from '../../service/api/ApiClient';
-import { ApiError } from '../../service/api/ApiError';
-import { AppContextHolder } from '../../common/AppContextHolder';
 import { ThemeHelper } from '../../common/ThemeHelper';
-import { ChatStore } from '../../service/chat/ChatStore';
-import { HistoryArchive, ArchiveError } from '../../service/history/HistoryArchive';
+import { AppContextHolder } from '../../common/AppContextHolder';
 import { NotifyService } from '../../service/notify/NotifyService';
 import { LiveViewService } from '../../service/notify/LiveViewService';
 import { UserLocation, ThemePreference, ThinkingEffort } from '../../model/SettingsTypes';
 import { promptAction } from '@kit.ArkUI';
-import { picker } from '@kit.CoreFileKit';
-import fs from '@ohos.file.fs';
-import { Logger } from '../../common/Logger';
+import { PageHeader } from './PageHeader';
 
 /** 省份/地区（位置信息用于联网搜索本地化） */
 const PROVINCES: string[] = [
@@ -25,616 +18,629 @@ const PROVINCES: string[] = [
   '香港', '澳门', '台湾',
 ];
 
-/** 完整设置页（List+SubHeader 鸿蒙布局） */
+/** 选项词条（顺序即索引，与设置值映射表配套） */
+const THEME_KEYS: string[] = [
+  'avatarMenuSettingsDialogThemeSelectSystemOption',
+  'avatarMenuSettingsDialogThemeSelectLightOption',
+  'avatarMenuSettingsDialogThemeSelectDarkOption',
+];
+const FONT_SCALE_KEYS: string[] = ['fontOptSmall', 'fontOptStandard', 'fontOptLarge', 'fontOptXl'];
+const FONT_SCALES: string[] = ['small', 'standard', 'large', 'xl'];
+const EFFORT_KEYS: string[] = ['thinkingEffortLow', 'thinkingEffortStandard', 'thinkingEffortMax'];
+const EFFORTS: ThinkingEffort[] = ['low', 'high', 'max'];
+const LOCALE_KEYS: string[] = ['settingsLocaleZhCN', 'settingsLocaleEnUS'];
+
+/**
+ * 设置页（仿官方 DeepSeek App）：
+ * 圆形返回钮 + 居中标题；小灰分组头 + 白圆角卡；行 = 图标 + 标题 + 灰色当前值 + 箭头。
+ * 选择类行点开居中单选弹窗（鸿蒙 Radio + 确认按钮，确认才生效）；
+ * 朗读音色为底部面板（Swiper 音色卡轮播 + 确认）；数据/模型/个性化/隐私跳独立子页。
+ */
 @ComponentV2
 export struct SettingsPage {
   @Param pathStack: NavPathStack = new NavPathStack();
   settings: SettingsStore = SettingsStore.get();
-  store: ChatStore = ChatStore.get();
-  @Local apiKey: string = '';
-  @Local verifyState: 'idle' | 'verifying' | 'ok' | 'fail' = 'idle';
-  @Local verifyMsg: string = '';
-  @Local modelInput: string = '';
-  @Local originInput: string = '';
-
-  aboutToAppear(): void {
-    KeyVault.load(AppContextHolder.get()).then((k: string | null) => {
-      if (k !== null) {
-        this.apiKey = k;
-        this.verifyState = 'ok';
-      }
-    }).catch(() => {});
-    this.modelInput = this.settings.model;
-    this.originInput = this.settings.apiOrigin;
-  }
+  /** 居中单选弹窗状态 */
+  @Local dialogVisible: boolean = false;
+  @Local dialogHasIcon: boolean = false;
+  @Local dialogIcon: Resource | null = null;
+  @Local dialogTitle: string = '';
+  @Local dialogOptions: string[] = [];
+  @Local dialogSelected: number = -1;
+  @Local dialogPending: number = -1;
+  private dialogOnSelect: (idx: number) => void = (): void => {};
+  /** 朗读音色底部面板状态 */
+  @Local voiceSheetVisible: boolean = false;
+  @Local voicePending: number = 0;
 
   build() {
     NavDestination() {
       Stack() {
-        Scroll() {
-          Column({ space: 12 }) {
-            // ---------- API Key ----------
-            this.subHeader('apiKeyEdit')
-            Column({ space: 8 }) {
-              Row({ space: 8 }) {
-                TextInput({
-                  text: this.apiKey,
-                  placeholder: I18n.translate('apiKeyPlaceholder'),
-                })
-                  .type(InputType.Password)
-                  .fontSize(Fonts.body2())
-                  .fontColor($r('app.color.text_primary'))
-                  .placeholderColor($r('app.color.text_tertiary'))
-                  .backgroundColor($r('app.color.text_field_sub_bg'))
-                  .borderRadius(Dim.radiusS)
-                  .layoutWeight(1)
-                  .onChange((v: string) => {
-                    this.apiKey = v;
-                    this.verifyState = 'idle';
-                  })
-                Button(this.verifyState === 'verifying' ? I18n.translate('apiKeyVerifying') : I18n.translate('confirm'))
-                  .fontSize(Fonts.body2())
-                  .backgroundColor($r('app.color.brand'))
-                  .fontColor($r('app.color.text_primary_contrary'))
-                  .enabled(this.verifyState !== 'verifying' && this.apiKey.trim().length > 0)
-                  .onClick(() => {
-                    this.verify();
-                  })
-              }
-              .width('100%')
-
-              if (this.verifyState === 'ok') {
-                Text(I18n.translate('apiKeyStart'))
-                  .fontSize(Fonts.body3())
-                  .fontColor($r('app.color.success'))
-                  .width('100%')
-              } else if (this.verifyState === 'fail') {
-                Text(this.verifyMsg)
-                  .fontSize(Fonts.body3())
-                  .fontColor($r('app.color.warning'))
-                  .width('100%')
-              }
-            }
-            .padding(Dim.cardPadding)
-            .backgroundColor($r('app.color.card_bg'))
-            .borderRadius(Dim.radiusM)
-            .width('100%')
-
-            // ---------- 模型与服务 ----------
-            this.subHeader('modelAndService')
-            Column({ space: 8 }) {
-              Column({ space: 4 }) {
-                Text(I18n.translate('modelLabel'))
-                  .fontSize(Fonts.caption())
-                  .fontColor($r('app.color.text_tertiary'))
-                  .width('100%')
-                TextInput({
-                  text: this.modelInput,
-                  placeholder: I18n.translate('modelPlaceholder'),
-                })
-                  .fontSize(Fonts.body2())
-                  .fontColor($r('app.color.text_primary'))
-                  .placeholderColor($r('app.color.text_tertiary'))
-                  .backgroundColor($r('app.color.text_field_sub_bg'))
-                  .borderRadius(Dim.radiusS)
-                  .onChange((v: string) => {
-                    this.modelInput = v;
-                  })
-              }
-              .width('100%')
-
-              Column({ space: 4 }) {
-                Text(I18n.translate('serviceAddressLabel'))
-                  .fontSize(Fonts.caption())
-                  .fontColor($r('app.color.text_tertiary'))
-                  .width('100%')
-                TextInput({
-                  text: this.originInput,
-                  placeholder: I18n.translate('serviceAddressPlaceholder'),
-                })
-                  .fontSize(Fonts.body2())
-                  .fontColor($r('app.color.text_primary'))
-                  .placeholderColor($r('app.color.text_tertiary'))
-                  .backgroundColor($r('app.color.text_field_sub_bg'))
-                  .borderRadius(Dim.radiusS)
-                  .onChange((v: string) => {
-                    this.originInput = v;
-                  })
-              }
-              .width('100%')
-
-              Button(I18n.translate('confirm'))
-                .fontSize(Fonts.body2())
-                .backgroundColor($r('app.color.brand'))
-                .fontColor($r('app.color.text_primary_contrary'))
-                .width('100%')
-                .onClick(() => {
-                  this.settings.setModel(this.modelInput);
-                  this.settings.setApiOrigin(this.originInput);
-                  this.getUIContext().getPromptAction()
-                    .showToast({ message: I18n.translate('settingsSaved'), duration: 1500 });
-                })
-
-              Text(I18n.translate('customModelHint'))
-                .fontSize(Fonts.caption())
-                .fontColor($r('app.color.text_tertiary'))
-                .width('100%')
-            }
-            .padding(Dim.cardPadding)
-            .backgroundColor($r('app.color.card_bg'))
-            .borderRadius(Dim.radiusM)
-            .width('100%')
-
-            // ---------- 外观 ----------
-            this.subHeader('settingsGroupAppearance')
-            Column() {
-              this.selectRow('fontSizeLabel', ['fontOptSmall', 'fontOptStandard', 'fontOptLarge', 'fontOptXl'],
-                (): number => {
-                  const idx: string[] = ['small', 'standard', 'large', 'xl'];
-                  return idx.indexOf(this.settings.fontScale);
-                },
-                (idx: number): void => {
-                  const scales: string[] = ['small', 'standard', 'large', 'xl'];
-                  this.settings.setFontScale(scales[idx]);
-                })
-              this.rowDivider()
-              this.selectRow('fontFamilyLabel', ['fontOptDefault', 'fontOptSans', 'fontOptSerif', 'fontOptMono'],
-                (): number => {
-                  const fams: string[] = ['', 'sans-serif', 'serif', 'monospace'];
-                  return fams.indexOf(this.settings.fontFamily);
-                },
-                (idx: number): void => {
-                  const fams: string[] = ['', 'sans-serif', 'serif', 'monospace'];
-                  this.settings.setFontFamily(fams[idx]);
-                })
-              this.rowDivider()
-              this.selectRow('avatarMenuSettingsDialogThemeItemLabel',
-                [
-                  'avatarMenuSettingsDialogThemeSelectSystemOption',
-                  'avatarMenuSettingsDialogThemeSelectLightOption',
-                  'avatarMenuSettingsDialogThemeSelectDarkOption',
-                ],
-                (): number => this.settings.themePreference === 'system' ? 0
-                  : (this.settings.themePreference === 'light' ? 1 : 2),
-                (idx: number): void => {
-                  const prefs: ThemePreference[] = ['system', 'light', 'dark'];
-                  this.settings.setThemePreference(prefs[idx]);
-                  this.applyTheme();
-                })
-            }
-            .backgroundColor($r('app.color.card_bg'))
-            .borderRadius(Dim.radiusM)
-            .width('100%')
-
-            // ---------- 对话 ----------
-            this.subHeader('settingsGroupChat')
-            Column() {
-              this.actionRowWithState('personalization', (): string =>
-                this.settings.personalization === '' ? '' : I18n.translate('personalizationEnabled'),
-              (): void => {
-                this.pathStack.pushPathByName('persona', null);
-              })
-              this.rowDivider()
-              this.toggleRow('thinkingSwitch', (): boolean => this.settings.thinking, (on: boolean): void => {
-                this.settings.setThinking(on);
-              })
-              this.rowDivider()
+        Column() {
+          PageHeader({
+            title: I18n.translate('settings'),
+            onBack: (): void => {
+              this.pathStack.pop();
+            },
+          })
+          Scroll() {
+            Column({ space: 16 }) {
+              // ---------- 模型与服务 ----------
+              this.sectionHeader('modelAndService')
               Column() {
-                this.selectRow('thinkingEffortLabel', ['thinkingEffortLow', 'thinkingEffortStandard', 'thinkingEffortMax'],
-                  (): number => this.settings.thinkingEffort === 'low' ? 0
-                    : (this.settings.thinkingEffort === 'high' ? 1 : 2),
-                  (idx: number): void => {
-                    const efforts: ThinkingEffort[] = ['low', 'high', 'max'];
-                    this.settings.setThinkingEffort(efforts[idx]);
+                this.optionRow('modelAndService', $r('app.media.ic_public_settings'),
+                  (): string => this.settings.model, (): void => {
+                    this.pathStack.pushPathByName('model', null);
                   })
               }
-              .opacity(this.settings.thinking ? 1 : 0.4)
-              this.rowDivider()
-              this.toggleRow('search', (): boolean => this.settings.search, (on: boolean): void => {
-                this.settings.setSearch(on);
-              })
-              this.rowDivider()
-              this.selectRow('settingsTtsVoice', ['settingsTtsVoiceStella', 'settingsTtsVoiceTide'],
-                (): number => this.settings.ttsVoice === 'stella' ? 0 : 1,
-                (idx: number): void => {
-                  this.settings.setTtsVoice(idx === 0 ? 'stella' : 'tide');
-                })
-            }
-            .backgroundColor($r('app.color.card_bg'))
-            .borderRadius(Dim.radiusM)
-            .width('100%')
+              .backgroundColor($r('app.color.card_bg'))
+              .borderRadius(Dim.radiusL)
+              .width('100%')
+              .padding({ top: 6, bottom: 6 })
 
-            // ---------- 通知 ----------
-            this.subHeader('settingsGroupNotify')
-            Column() {
-              this.toggleRow('notifyOnReply', (): boolean => this.settings.notifyOnReply, (on: boolean): void => {
-                if (!on) {
-                  this.settings.setNotifyOnReply(false);
-                  return;
+              // ---------- 外观 ----------
+              this.sectionHeader('settingsGroupAppearance')
+              Column() {
+                this.optionRow('avatarMenuSettingsDialogThemeItemLabel', $r('app.media.ic_public_brightness'),
+                  (): string => this.selectedLabel(THEME_KEYS, (): number => this.themeIdx()),
+                  (): void => {
+                    this.openRadio('', THEME_KEYS, (): number => this.themeIdx(), (idx: number): void => {
+                      const prefs: ThemePreference[] = ['system', 'light', 'dark'];
+                      this.settings.setThemePreference(prefs[idx]);
+                      this.applyTheme();
+                    })
+                  })
+                this.optionRow('fontSizeLabel', $r('app.media.ic_public_text'),
+                  (): string => this.selectedLabel(FONT_SCALE_KEYS, (): number => this.scaleIdx()),
+                  (): void => {
+                    this.openRadio('fontSizeLabel', FONT_SCALE_KEYS, (): number => this.scaleIdx(),
+                      (idx: number): void => {
+                        this.settings.setFontScale(FONT_SCALES[idx]);
+                      })
+                  })
+              }
+              .backgroundColor($r('app.color.card_bg'))
+              .borderRadius(Dim.radiusL)
+              .width('100%')
+              .padding({ top: 6, bottom: 6 })
+
+              // ---------- 对话 ----------
+              this.sectionHeader('settingsGroupChat')
+              Column() {
+                this.toggleRow('thinkingSwitch', $r('app.media.ic_public_favor'),
+                  (): boolean => this.settings.thinking, (on: boolean): void => {
+                    this.settings.setThinking(on);
+                  })
+                Column() {
+                  this.optionRow('thinkingEffortLabel', $r('app.media.ic_public_stopwatch'),
+                    (): string => this.selectedLabel(EFFORT_KEYS, (): number => this.effortIdx()),
+                    (): void => {
+                      this.openRadio('thinkingEffortLabel', EFFORT_KEYS, (): number => this.effortIdx(),
+                        (idx: number): void => {
+                          this.settings.setThinkingEffort(EFFORTS[idx]);
+                        })
+                    })
                 }
-                NotifyService.requestEnable().then((granted: boolean) => {
-                  if (granted) {
-                    this.settings.setNotifyOnReply(true);
-                  } else {
-                    this.getUIContext().getPromptAction()
-                      .showToast({ message: I18n.translate('notifyPermissionDenied'), duration: 2500 });
-                  }
-                }).catch(() => {});
-              })
-              this.rowDivider()
-              this.toggleRow('liveViewOnReply', (): boolean => this.settings.liveViewOnReply, (on: boolean): void => {
-                this.settings.setLiveViewOnReply(on);
-                if (!on) {
-                  LiveViewService.replyEnded().catch(() => {});
-                }
-              })
-            }
-            .backgroundColor($r('app.color.card_bg'))
-            .borderRadius(Dim.radiusM)
-            .width('100%')
+                .width('100%')
+                .opacity(this.settings.thinking ? 1 : 0.4)
+                this.toggleRow('search', $r('app.media.ic_public_search'),
+                  (): boolean => this.settings.search, (on: boolean): void => {
+                    this.settings.setSearch(on);
+                  })
+                this.optionRow('personalization', $r('app.media.ic_public_emoji'),
+                  (): string => this.settings.personalization === '' ? '' : I18n.translate('personalizationEnabled'),
+                  (): void => {
+                    this.pathStack.pushPathByName('persona', null);
+                  })
+              }
+              .backgroundColor($r('app.color.card_bg'))
+              .borderRadius(Dim.radiusL)
+              .width('100%')
+              .padding({ top: 6, bottom: 6 })
 
-            // ---------- 语言与地区 ----------
-            this.subHeader('settingsGroupLocale')
-            Column() {
-              this.selectRow('settingsLocalePreference', ['settingsLocaleZhCN', 'settingsLocaleEnUS'],
-                (): number => this.settings.locale === 'zh-CN' ? 0 : 1,
-                (idx: number): void => {
-                  this.settings.setLocale(idx === 0 ? 'zh-CN' : 'en-US');
+              // ---------- 语音 ----------
+              this.sectionHeader('settingsGroupVoice')
+              Column() {
+                this.toggleRow('settingsTtsEnable', $r('app.media.ic_public_ring'),
+                  (): boolean => this.settings.ttsEnabled, (on: boolean): void => {
+                    this.settings.setTtsEnabled(on);
+                  })
+                this.optionRow('settingsTtsVoice', $r('app.media.ic_public_sound'),
+                  (): string => this.voiceLabel(), (): void => {
+                    this.openVoiceSheet();
+                  })
+              }
+              .backgroundColor($r('app.color.card_bg'))
+              .borderRadius(Dim.radiusL)
+              .width('100%')
+              .padding({ top: 6, bottom: 6 })
+
+              // ---------- 语言与地区 ----------
+              this.sectionHeader('settingsGroupLocale')
+              Column() {
+                this.optionRow('settingsLocalePreference', $r('app.media.ic_public_translate'),
+                  (): string => this.selectedLabel(LOCALE_KEYS, (): number => this.localeIdx()),
+                  (): void => {
+                    this.openRadio('settingsLocalePreference', LOCALE_KEYS, (): number => this.localeIdx(),
+                      (idx: number): void => {
+                        this.settings.setLocale(idx === 0 ? 'zh-CN' : 'en-US');
+                      }, $r('app.media.ic_public_translate'))
+                  })
+                this.optionRow('settingsLocation', $r('app.media.ic_public_gps'),
+                  (): string => {
+                    const loc = this.settings.location;
+                    return loc === null || loc.province === null
+                      ? I18n.translate('settingsLocationNone') : loc.province;
+                  },
+                  (): void => {
+                    this.openRadio('settingsLocation', ['settingsLocationNone', ...PROVINCES],
+                      (): number => {
+                        const loc = this.settings.location;
+                        if (loc === null || loc.province === null) {
+                          return 0;
+                        }
+                        const idx = PROVINCES.indexOf(loc.province);
+                        return idx >= 0 ? idx + 1 : 0;
+                      }, (idx: number): void => {
+                        if (idx === 0) {
+                          this.settings.setLocation(null);
+                          return;
+                        }
+                        const loc = new UserLocation();
+                        loc.region = 'CN';
+                        loc.province = PROVINCES[idx - 1];
+                        this.settings.setLocation(loc);
+                      }, $r('app.media.ic_public_gps'))
+                  })
+              }
+              .backgroundColor($r('app.color.card_bg'))
+              .borderRadius(Dim.radiusL)
+              .width('100%')
+              .padding({ top: 6, bottom: 6 })
+
+              // ---------- 通知 ----------
+              this.sectionHeader('settingsGroupNotify')
+              Column() {
+                this.toggleRow('notifyOnReply', $r('app.media.ic_public_ring'),
+                  (): boolean => this.settings.notifyOnReply, (on: boolean): void => {
+                    if (!on) {
+                      this.settings.setNotifyOnReply(false);
+                      return;
+                    }
+                    NotifyService.requestEnable().then((granted: boolean) => {
+                      if (granted) {
+                        this.settings.setNotifyOnReply(true);
+                      } else {
+                        this.getUIContext().getPromptAction()
+                          .showToast({ message: I18n.translate('notifyPermissionDenied'), duration: 2500 });
+                      }
+                    }).catch(() => {});
+                  })
+                this.toggleRow('liveViewOnReply', $r('app.media.ic_public_clock'),
+                  (): boolean => this.settings.liveViewOnReply, (on: boolean): void => {
+                    this.settings.setLiveViewOnReply(on);
+                    if (!on) {
+                      LiveViewService.replyEnded().catch(() => {});
+                    }
+                  })
+              }
+              .backgroundColor($r('app.color.card_bg'))
+              .borderRadius(Dim.radiusL)
+              .width('100%')
+              .padding({ top: 6, bottom: 6 })
+
+              // ---------- 数据 ----------
+              this.sectionHeader('settingsGroupData')
+              Column() {
+                this.optionRow('dataManage', $r('app.media.ic_public_storage'), (): string => '', (): void => {
+                  this.pathStack.pushPathByName('data', null);
                 })
-              this.rowDivider()
-              this.selectRow('settingsLocation', ['settingsLocationNone', ...PROVINCES],
-                (): number => {
-                  const loc = this.settings.location;
-                  if (loc === null || loc.province === null) {
-                    return 0;
-                  }
-                  const idx = PROVINCES.indexOf(loc.province);
-                  return idx >= 0 ? idx + 1 : 0;
-                },
-                (idx: number): void => {
-                  if (idx === 0) {
-                    this.settings.setLocation(null);
-                    return;
-                  }
-                  const loc = new UserLocation();
-                  loc.region = 'CN';
-                  loc.province = PROVINCES[idx - 1];
-                  this.settings.setLocation(loc);
+              }
+              .backgroundColor($r('app.color.card_bg'))
+              .borderRadius(Dim.radiusL)
+              .width('100%')
+              .padding({ top: 6, bottom: 6 })
+
+              // ---------- 关于 ----------
+              this.sectionHeader('about')
+              Column() {
+                this.infoRow('version', $r('app.media.ic_public_upgrade'), '1.0.0')
+                this.optionRow('privacyPolicyTitle', $r('app.media.ic_public_privacy'), (): string => '', (): void => {
+                  this.pathStack.pushPathByName('privacy', null);
                 })
-            }
-            .backgroundColor($r('app.color.card_bg'))
-            .borderRadius(Dim.radiusM)
-            .width('100%')
-
-            // ---------- 数据 ----------
-            this.subHeader('settingsGroupData')
-            Column() {
-              this.actionRow('usageStats', (): void => {
-                this.pathStack.pushPathByName('usage', null);
-              })
-              this.rowDivider()
-              this.actionRow('historyImport', (): void => {
-                this.confirmImport();
-              })
-              this.rowDivider()
-              this.actionRow('exportAllLabel', (): void => {
-                this.doExport();
-              })
-              this.rowDivider()
-              this.actionRowDanger('deleteAllSessions', (): void => {
-                this.confirmDeleteAll();
-              })
-            }
-            .backgroundColor($r('app.color.card_bg'))
-            .borderRadius(Dim.radiusM)
-            .width('100%')
-
-            // ---------- 关于 ----------
-            this.subHeader('about')
-
-            Column({ space: 6 }) {
-              Row() {
-                Text(I18n.translate('version'))
-                  .fontSize(Fonts.body1())
-                  .fontColor($r('app.color.text_primary'))
-                Blank()
-                Text('1.0.0')
-                  .fontSize(Fonts.body2())
-                  .fontColor($r('app.color.text_secondary'))
               }
+              .backgroundColor($r('app.color.card_bg'))
+              .borderRadius(Dim.radiusL)
               .width('100%')
-
-              Row() {
-                Text(I18n.translate('modelLabel'))
-                  .fontSize(Fonts.body1())
-                  .fontColor($r('app.color.text_primary'))
-                Blank()
-                Text(this.settings.model)
-                  .fontSize(Fonts.body2())
-                  .fontColor($r('app.color.text_secondary'))
-              }
-              .width('100%')
-
-              Row() {
-                Text(I18n.translate('serverAddress'))
-                  .fontSize(Fonts.body1())
-                  .fontColor($r('app.color.text_primary'))
-                Blank()
-                Text(this.settings.apiOrigin)
-                  .fontSize(Fonts.caption())
-                  .fontColor($r('app.color.text_secondary'))
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .constraintSize({ maxWidth: '55%' })
-              }
-              .width('100%')
-
+              .padding({ top: 6, bottom: 6 })
               Text(I18n.translate('portingFrom'))
                 .fontSize(Fonts.caption())
                 .fontColor($r('app.color.text_tertiary'))
                 .width('100%')
+                .padding({ left: 16, bottom: 44 })
             }
-            .padding(Dim.cardPadding)
-            .backgroundColor($r('app.color.card_bg'))
-            .borderRadius(Dim.radiusM)
-            .width('100%')
+            .padding({ left: Dim.pagePadding, right: Dim.pagePadding, top: 4 })
+            .constraintSize({ maxWidth: Dim.contentMaxWidth })
           }
-          .padding(Dim.pagePadding)
-          .constraintSize({ maxWidth: Dim.contentMaxWidth })
+          .layoutWeight(1)
+          .scrollBar(BarState.Off)
+          .align(Alignment.Top)
+          // 内容滚动手势条下方：行滚到底部只被手势条浮层遮住，不在安全区分界线被裁切
+          .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
         }
-        .layoutWeight(1)
-        .scrollBar(BarState.Off)
-        .align(Alignment.Top)
+        .width('100%')
+        .height('100%')
+
+        // 居中单选弹窗（遮罩 + 卡片，仿官方；确认才生效）
+        if (this.dialogVisible) {
+          Column()
+            .width('100%')
+            .height('100%')
+            .backgroundColor('rgba(0,0,0,0.35)')
+            .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 1 })
+            .onClick(() => {
+              this.closeDialog();
+            })
+            .transition(TransitionEffect.OPACITY.animation({ duration: 200, curve: Curve.Smooth }))
+          Column() {
+            if (this.dialogHasIcon && this.dialogIcon !== null) {
+              Image(this.dialogIcon)
+                .width(28)
+                .height(28)
+                .fillColor($r('app.color.text_primary'))
+                .margin({ top: 20 })
+            }
+            Text(this.dialogTitle)
+              .fontSize(Fonts.body1())
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.text_primary'))
+              .textAlign(TextAlign.Center)
+              .width('100%')
+              .padding({ left: 20, right: 20, top: 18, bottom: 10 })
+            List({ space: 0 }) {
+              ForEach(this.dialogOptions, (opt: string, idx: number) => {
+                ListItem() {
+                  Row({ space: 12 }) {
+                    Radio({ value: `${idx}`, group: 'settingsRadio' })
+                      .checked(idx === this.dialogPending)
+                      .onChange((on: boolean) => {
+                        if (on) {
+                          this.dialogPending = idx;
+                        }
+                      })
+                    Text(opt)
+                      .fontSize(Fonts.body1())
+                      .fontColor($r('app.color.text_primary'))
+                      .layoutWeight(1)
+                  }
+                  .width('100%')
+                  .height(48)
+                  .padding({ left: 20, right: 20 })
+                  .onClick(() => {
+                    this.dialogPending = idx;
+                  })
+                }
+              }, (opt: string, idx: number) => `${idx}_${opt}`)
+            }
+            .width('100%')
+            .constraintSize({ maxHeight: 360 })
+            Divider()
+              .color($r('app.color.list_separator'))
+              .strokeWidth(Dim.separator)
+            Text(I18n.translate('confirm'))
+              .fontSize(Fonts.body1())
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.brand_activated'))
+              .textAlign(TextAlign.Center)
+              .width('100%')
+              .height(52)
+              .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.97 })
+              .onClick(() => {
+                this.applyDialog();
+              })
+          }
+          .width('82%')
+          .constraintSize({ maxWidth: 360 })
+          .backgroundColor($r('app.color.dialog_bg'))
+          .borderRadius(Dim.radiusL)
+          .clip(true)
+          .transition(TransitionEffect.OPACITY.combine(TransitionEffect.scale({ x: 0.95, y: 0.95 }))
+            .animation({ duration: 200, curve: Curve.Smooth }))
+        }
       }
       .width('100%')
       .height('100%')
+      .backgroundColor($r('app.color.settings_bg'))
+      .bindSheet(!!this.voiceSheetVisible, this.voiceSheet(), {
+        height: SheetSize.FIT_CONTENT,
+        dragBar: true,
+        showClose: false,
+        backgroundColor: $r('app.color.dialog_bg'),
+        onDisappear: (): void => {
+          this.voiceSheetVisible = false;
+        },
+      })
     }
-    .title(I18n.translate('settings'))
-    .backgroundColor($r('app.color.app_bg'))
+    .hideTitleBar(true)
+    .backgroundColor($r('app.color.settings_bg'))
+    // 灰底延伸进手势条避让区，否则 Navigation 白底在页面底部露条
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
   }
 
+  /** 分组小灰头 */
   @Builder
-  subHeader(titleKey: string) {
+  sectionHeader(titleKey: string) {
     Text(I18n.translate(titleKey))
-      .fontSize(Fonts.body2())
-      .fontWeight(FontWeight.Medium)
+      .fontSize(Fonts.caption())
       .fontColor($r('app.color.text_tertiary'))
       .width('100%')
-      .padding({ top: 8, left: 4 })
+      .padding({ left: 16, top: 4, bottom: 2 })
   }
 
-  /**
-   * 下拉选择行：label 用词条 key、选项数组与选中索引在 @Builder 体内求值，
-   * 读取 @Trace（locale/设置项），语言与状态切换即时刷新（传值参数不响应更新）。
-   */
+  /** 选项行：图标 + 标题 + 灰色当前值（空则隐藏）+ 箭头，整行可点 */
   @Builder
-  selectRow(labelKey: string, optionKeys: string[], selectedFn: () => number, onSelect: (idx: number) => void) {
-    Row() {
+  optionRow(labelKey: string, icon: Resource, valueFn: () => string, onTap: () => void) {
+    Row({ space: 12 }) {
+      Image(icon)
+        .width(22)
+        .height(22)
+        .fillColor($r('app.color.text_primary'))
       Text(I18n.translate(labelKey))
         .fontSize(Fonts.body1())
         .fontColor($r('app.color.text_primary'))
-      Blank()
-      Select(this.selectOptions(optionKeys))
-        .selected(selectedFn())
-        .font({ size: Fonts.body2() })
-        .onSelect((idx: number, _value: string) => {
-          onSelect(idx);
-        })
+        .layoutWeight(1)
+      if (valueFn() !== '') {
+        Text(valueFn())
+          .fontSize(Fonts.body2())
+          .fontColor($r('app.color.text_secondary'))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .constraintSize({ maxWidth: '46%' })
+      }
+      Image($r('app.media.ic_public_arrow_right'))
+        .width(16)
+        .height(16)
+        .fillColor($r('app.color.text_tertiary'))
     }
     .width('100%')
-    .height(Dim.listRowHeight)
-    .padding({ left: Dim.cardPadding, right: Dim.cardPadding })
+    .height(56)
+    .padding({ left: 16, right: 16 })
+    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.98 })
+    .onClick(() => {
+      onTap();
+    })
   }
 
-  /** 开关行（鸿蒙 Toggle 开关） */
+  /** 信息行：图标 + 标题 + 只读值（无箭头） */
   @Builder
-  toggleRow(labelKey: string, isOnFn: () => boolean, onChange: (on: boolean) => void) {
-    Row() {
+  infoRow(labelKey: string, icon: Resource, value: string) {
+    Row({ space: 12 }) {
+      Image(icon)
+        .width(22)
+        .height(22)
+        .fillColor($r('app.color.text_primary'))
       Text(I18n.translate(labelKey))
         .fontSize(Fonts.body1())
         .fontColor($r('app.color.text_primary'))
-      Blank()
+        .layoutWeight(1)
+      Text(value)
+        .fontSize(Fonts.body2())
+        .fontColor($r('app.color.text_secondary'))
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .constraintSize({ maxWidth: '46%' })
+    }
+    .width('100%')
+    .height(56)
+    .padding({ left: 16, right: 16 })
+  }
+
+  /** 开关行：图标 + 标题 + Toggle */
+  @Builder
+  toggleRow(labelKey: string, icon: Resource, isOnFn: () => boolean, onChange: (on: boolean) => void) {
+    Row({ space: 12 }) {
+      Image(icon)
+        .width(22)
+        .height(22)
+        .fillColor($r('app.color.text_primary'))
+      Text(I18n.translate(labelKey))
+        .fontSize(Fonts.body1())
+        .fontColor($r('app.color.text_primary'))
+        .layoutWeight(1)
       Toggle({ type: ToggleType.Switch, isOn: isOnFn() })
         .onChange((on: boolean) => {
           onChange(on);
         })
     }
     .width('100%')
-    .height(Dim.listRowHeight)
-    .padding({ left: Dim.cardPadding, right: Dim.cardPadding })
+    .height(56)
+    .padding({ left: 16, right: 16 })
   }
 
-  /** 动作行（整行点击，右侧可选状态值） */
-  @Builder
-  actionRowWithState(labelKey: string, valueFn: () => string, onTap: () => void) {
-    Row() {
-      Text(I18n.translate(labelKey))
-        .fontSize(Fonts.body1())
-        .fontColor($r('app.color.text_primary'))
-      Blank()
-      Text(valueFn())
-        .fontSize(Fonts.body2())
-        .fontColor(valueFn() === '' ? $r('app.color.text_tertiary') : $r('app.color.brand_activated'))
-    }
-    .width('100%')
-    .height(Dim.listRowHeight)
-    .padding({ left: Dim.cardPadding, right: Dim.cardPadding })
-    .onClick(() => {
-      onTap();
-    })
-  }
-
-  /** 危险动作行（红色标签，如删除） */
-  @Builder
-  actionRowDanger(labelKey: string, onTap: () => void) {
-    Row() {
-      Text(I18n.translate(labelKey))
-        .fontSize($r('app.float.font_body1'))
-        .fontColor($r('app.color.warning'))
-    }
-    .width('100%')
-    .height(Dim.listRowHeight)
-    .padding({ left: Dim.cardPadding, right: Dim.cardPadding })
-    .onClick(() => {
-      onTap();
-    })
-  }
-
-  /** 组内行分隔线（左右缩进） */
-  @Builder
-  rowDivider() {
-    Divider()
-      .color($r('app.color.list_separator'))
-      .strokeWidth(Dim.separator)
-      .margin({ left: Dim.cardPadding, right: Dim.cardPadding })
-  }
-
-  /** 动作行（整行点击） */
-  @Builder
-  actionRow(labelKey: string, onTap: () => void) {
-    Row() {
-      Text(I18n.translate(labelKey))
-        .fontSize(Fonts.body1())
-        .fontColor($r('app.color.text_primary'))
-    }
-    .width('100%')
-    .height(Dim.listRowHeight)
-    .padding({ left: Dim.cardPadding, right: Dim.cardPadding })
-    .backgroundColor($r('app.color.card_bg'))
-    .borderRadius(Dim.radiusM)
-    .onClick(() => {
-      onTap();
-    })
-  }
-
-  /** 词条 key → Select 选项（体内调用以保持 locale 响应式） */
-  private selectOptions(optionKeys: string[]): SelectOption[] {
-    const arr: SelectOption[] = [];
+  /** 居中单选弹窗：点行换待选，点确认才落盘生效 */
+  private openRadio(labelKey: string, optionKeys: string[], selectedFn: () => number,
+    onSelect: (idx: number) => void, icon?: Resource): void {
+    const opts: string[] = [];
     for (const k of optionKeys) {
-      const o: SelectOption = { value: I18n.translate(k) };
-      arr.push(o);
+      opts.push(I18n.translate(k));
     }
-    return arr;
+    this.dialogTitle = labelKey === '' ? I18n.translate('settingsGroupAppearance') : I18n.translate(labelKey);
+    this.dialogOptions = opts;
+    this.dialogPending = selectedFn();
+    this.dialogOnSelect = onSelect;
+    this.dialogHasIcon = icon !== undefined;
+    this.dialogIcon = icon !== undefined ? icon : null;
+    this.getUIContext().animateTo({ duration: 200, curve: Curve.Smooth }, () => {
+      this.dialogVisible = true;
+    });
+  }
+
+  private applyDialog(): void {
+    this.dialogOnSelect(this.dialogPending);
+    this.closeDialog();
+  }
+
+  private closeDialog(): void {
+    this.getUIContext().animateTo({ duration: 200, curve: Curve.Smooth }, () => {
+      this.dialogVisible = false;
+    });
+  }
+
+  /** 音色底部面板（官方：标题居中 + 右上关闭圆钮 + 卡片轮播 + 圆点 + 确认胶囊） */
+  private openVoiceSheet(): void {
+    this.voicePending = this.voiceIdx();
+    this.voiceSheetVisible = true;
+  }
+
+  private voiceLabel(): string {
+    return this.voiceIdx() === 0 ? I18n.translate('settingsTtsVoiceStella') : I18n.translate('settingsTtsVoiceTide');
+  }
+
+  @Builder
+  voiceSheet() {
+    Column() {
+      Stack({ alignContent: Alignment.End }) {
+        Text(I18n.translate('settingsTtsVoice'))
+          .fontSize(Fonts.body1())
+          .fontWeight(FontWeight.Medium)
+          .fontColor($r('app.color.text_primary'))
+          .width('100%')
+          .textAlign(TextAlign.Center)
+        Row() {
+          Image($r('app.media.ic_public_cancel'))
+            .width(16)
+            .height(16)
+            .fillColor($r('app.color.text_secondary'))
+        }
+        .width(32)
+        .height(32)
+        .borderRadius(16)
+        .backgroundColor($r('app.color.component_normal'))
+        .justifyContent(FlexAlign.Center)
+        .alignItems(VerticalAlign.Center)
+        .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
+        .onClick(() => {
+          this.voiceSheetVisible = false;
+        })
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 12, bottom: 4 })
+
+      Swiper() {
+        // 海星（女声）：浅蓝柔光
+        Column({ space: 10 }) {
+          Column()
+            .width(200)
+            .height(104)
+            .borderRadius(52)
+            .linearGradient({
+              angle: 135,
+              colors: [['#EAF1FF', 0], ['#AFC7FF', 0.55], ['#DCE7FF', 1]],
+            })
+          Text(I18n.translate('settingsTtsVoiceStella'))
+            .fontSize(Fonts.body1())
+            .fontWeight(FontWeight.Medium)
+            .fontColor($r('app.color.text_primary'))
+          Text(I18n.translate('settingsTtsVoiceStellaDesc'))
+            .fontSize(Fonts.caption())
+            .fontColor($r('app.color.text_tertiary'))
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.Center)
+
+        // 暗潮（男声）：靛蓝沉稳
+        Column({ space: 10 }) {
+          Column()
+            .width(200)
+            .height(104)
+            .borderRadius(52)
+            .linearGradient({
+              angle: 135,
+              colors: [['#E3E9FF', 0], ['#8CA5EA', 0.55], ['#C6D2F2', 1]],
+            })
+          Text(I18n.translate('settingsTtsVoiceTide'))
+            .fontSize(Fonts.body1())
+            .fontWeight(FontWeight.Medium)
+            .fontColor($r('app.color.text_primary'))
+          Text(I18n.translate('settingsTtsVoiceTideDesc'))
+            .fontSize(Fonts.caption())
+            .fontColor($r('app.color.text_tertiary'))
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.Center)
+      }
+      .index(this.voicePending)
+      .indicator(false)
+      .loop(false)
+      .itemSpace(16)
+      .width('100%')
+      .height(190)
+      .margin({ top: 12 })
+      .onChange((idx: number) => {
+        this.voicePending = idx;
+      })
+
+      // 圆点页码（手动绘制，激活点品牌蓝）
+      Row({ space: 10 }) {
+        Circle({ width: 6, height: 6 })
+          .fill(this.voicePending === 0
+            ? $r('app.color.brand_activated')
+            : $r('app.color.component_normal'))
+        Circle({ width: 6, height: 6 })
+          .fill(this.voicePending === 1
+            ? $r('app.color.brand_activated')
+            : $r('app.color.component_normal'))
+      }
+      .width('100%')
+      .justifyContent(FlexAlign.Center)
+      .margin({ top: 14 })
+
+      Button(I18n.translate('confirm'))
+        .fontSize(Fonts.body1())
+        .fontWeight(FontWeight.Medium)
+        .backgroundColor($r('app.color.brand'))
+        .fontColor($r('app.color.text_primary_contrary'))
+        .width('86%')
+        .height(46)
+        .borderRadius(23)
+        .margin({ top: 22 })
+        .onClick(() => {
+          this.settings.setTtsVoice(this.voicePending === 0 ? 'stella' : 'tide');
+          this.voiceSheetVisible = false;
+        })
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, bottom: 28 })
+    .alignItems(HorizontalAlign.Center)
+  }
+
+  /** 当前选中项文案（索引越界返回空串） */
+  private selectedLabel(optionKeys: string[], selectedFn: () => number): string {
+    const idx = selectedFn();
+    return idx >= 0 && idx < optionKeys.length ? I18n.translate(optionKeys[idx]) : '';
+  }
+
+  private themeIdx(): number {
+    return this.settings.themePreference === 'system' ? 0 : (this.settings.themePreference === 'light' ? 1 : 2);
+  }
+
+  private scaleIdx(): number {
+    return FONT_SCALES.indexOf(this.settings.fontScale);
+  }
+
+  private effortIdx(): number {
+    return this.settings.thinkingEffort === 'low' ? 0 : (this.settings.thinkingEffort === 'high' ? 1 : 2);
+  }
+
+  private voiceIdx(): number {
+    return this.settings.ttsVoice === 'stella' ? 0 : 1;
+  }
+
+  private localeIdx(): number {
+    return this.settings.locale === 'zh-CN' ? 0 : 1;
   }
 
   private applyTheme(): void {
     ThemeHelper.apply(AppContextHolder.get(), this.settings.themePreference);
-  }
-
-  private verify(): void {
-    const key = this.apiKey.trim();
-    if (key === '') {
-      return;
-    }
-    this.verifyState = 'verifying';
-    ApiClient.verifyApiKey(key).then(() => {
-      return KeyVault.save(AppContextHolder.get(), key).then(() => {
-        this.verifyState = 'ok';
-        AppStorage.setOrCreate<boolean>('hasApiKey', true);
-        this.getUIContext().getPromptAction().showToast({ message: I18n.translate('apiKeyStart'), duration: 1500 });
-      });
-    }).catch((err: ApiError) => {
-      this.verifyState = 'fail';
-      this.verifyMsg = I18n.translate(ApiError.i18nKeyFor(err));
-      Logger.warn('SettingsPage', `verify failed: ${err.message}`);
-    });
-  }
-
-  private confirmDeleteAll(): void {
-    const buttons: Array<promptAction.Button> = [];
-    const bCancel: promptAction.Button = { text: I18n.translate('cancel'), color: '#66000000' };
-    const bDelete: promptAction.Button = { text: I18n.translate('delete'), color: '#E84026' };
-    buttons.push(bCancel);
-    buttons.push(bDelete);
-    const options: promptAction.ShowDialogOptions = {
-      title: I18n.translate('deleteAllSessionsModalTitle'),
-      message: I18n.translate('deleteAllSessionsModalDescription'),
-      buttons: buttons,
-      alignment: DialogAlignment.Center,
-    };
-    try {
-      this.getUIContext().getPromptAction().showDialog(options).then((result) => {
-        if (result.index === 1) {
-          this.store.deleteAll();
-          this.getUIContext().getPromptAction().showToast({ message: I18n.translate('historyDeleted'), duration: 1500 });
-        }
-      });
-    } catch (err) {
-      // 忽略
-    }
-  }
-
-  /** 导入历史对话：选择 ZIP → 确认覆盖 → 解析替换 */
-  private confirmImport(): void {
-    const buttons: Array<promptAction.Button> = [];
-    const bCancel: promptAction.Button = { text: I18n.translate('cancel'), color: '#66000000' };
-    const bConfirm: promptAction.Button = { text: I18n.translate('historyImportConfirm'), color: '#0A59F7' };
-    buttons.push(bCancel);
-    buttons.push(bConfirm);
-    const options: promptAction.ShowDialogOptions = {
-      title: I18n.translate('historyImportConfirmTitle'),
-      message: I18n.translate('historyImportConfirmDescription'),
-      buttons: buttons,
-      alignment: DialogAlignment.Center,
-    };
-    try {
-      this.getUIContext().getPromptAction().showDialog(options).then((result) => {
-        if (result.index === 1) {
-          this.pickAndImport();
-        }
-      });
-    } catch (err) {
-      // 忽略
-    }
-  }
-
-  private async pickAndImport(): Promise<void> {
-    try {
-      const docPicker = new picker.DocumentViewPicker();
-      const selectOptions = new picker.DocumentSelectOptions();
-      selectOptions.fileSuffixFilters = ['.zip'];
-      const uris = await docPicker.select(selectOptions);
-      if (uris.length === 0) {
-        return;
-      }
-      const context = AppContextHolder.get();
-      const tmp = `${context.cacheDir}/import_${Date.now()}.zip`;
-      fs.copyFileSync(uris[0], tmp);
-      const count = await HistoryArchive.importZip(tmp);
-      await this.store.reloadAfterImport();
-      try {
-        fs.unlinkSync(tmp);
-      } catch (e) {
-        // 忽略
-      }
-      this.getUIContext().getPromptAction().showToast({
-        message: I18n.translate(count === 1 ? 'historyImportedOne' : 'historyImported', { 'count': `${count}` }),
-        duration: 2000,
-      });
-    } catch (err) {
-      const key = err instanceof ArchiveError ? (err as ArchiveError).key : 'historyImportFailed';
-      this.getUIContext().getPromptAction().showToast({ message: I18n.translate(key), duration: 2500 });
-      Logger.warn('SettingsPage', `import failed: ${JSON.stringify(err)}`);
-    }
-  }
-
-  /** 导出全部会话到用户选择的 ZIP */
-  private async doExport(): Promise<void> {
-    try {
-      const produced = await HistoryArchive.exportZip();
-      // 另存为
-      const docPicker = new picker.DocumentViewPicker();
-      const saveOptions = new picker.DocumentSaveOptions();
-      saveOptions.newFileNames = [HistoryArchive.baseName(produced)];
-      const result = await docPicker.save(saveOptions);
-      if (result.length > 0) {
-        fs.copyFileSync(produced, result[0]);
-        this.getUIContext().getPromptAction().showToast({ message: I18n.translate('historyExported'), duration: 1500 });
-      }
-    } catch (err) {
-      const message = err instanceof Error ? (err as Error).message : `${JSON.stringify(err)}`;
-      this.getUIContext().getPromptAction().showToast({ message: I18n.translate('historyExportFailed', { 'message': message }), duration: 2500 });
-      Logger.warn('SettingsPage', `export failed: ${JSON.stringify(err)}`);
-    }
   }
 }

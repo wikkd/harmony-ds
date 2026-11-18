@@ -105,7 +105,10 @@ export struct UsagePage {
           Blank()
           Select(this.filterOptions())
             .selected(this.range)
+            .value(I18n.translate(RANGE_OPTIONS[this.range]))
             .font({ size: Fonts.body2() })
+            .fontColor($r('app.color.text_primary'))
+            .optionFont({ size: Fonts.body2() })
             .onSelect((idx: number, _value: string) => {
               this.range = idx;
             })
@@ -203,21 +206,25 @@ export struct UsagePage {
                 .fontSize(Fonts.caption())
                 .fontColor($r('app.color.text_tertiary'))
                 .width('100%')
-                .padding({ left: 4, bottom: 12 })
+                .padding({ left: 4, bottom: 24 })
             }
-            .padding(Dim.pagePadding)
+            .padding({ left: Dim.pagePadding, right: Dim.pagePadding, top: Dim.pagePadding, bottom: 20 })
             .constraintSize({ maxWidth: Dim.contentMaxWidth })
           }
           .layoutWeight(1)
           .scrollBar(BarState.Off)
           .align(Alignment.Top)
+          // 内容滚动手势条下方：行滚到底部只被手势条浮层遮住，不在安全区分界线被裁切
+          .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
         }
       }
       .width('100%')
       .height('100%')
     }
     .title(I18n.translate('usageStats'))
-    .backgroundColor($r('app.color.app_bg'))
+    .backgroundColor($r('app.color.settings_bg'))
+    // 灰底延伸进手势条避让区，否则 Navigation 白底在页面底部露条
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
   }
 
   /** 明细行：label 用体内求值保持语言响应式 */
