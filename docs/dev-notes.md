@@ -1,0 +1,48 @@
+# 开发经验总结（harmony DS）
+
+chat-demo → 鸿蒙原生移植（M1–M12）过程中沉淀的实操经验，按主题归类。
+配套工具：`scripts/build.cmd`（构建）、`scripts/install.cmd`（装机启动）、`scripts/test.cmd`（真机单测）；纯逻辑单测在 `entry/src/ohosTest/ets/test/Core.test.ets`。
+
+## 构建与工程
+
+- 无 IDE 构建：`scripts\build.cmd` 直接调 DevEco 自带的 hvigor/node（`DEVECO_SDK_HOME`/`JAVA_HOME` 指向 DevEco 安装目录），命令形如 `hvigorw --mode module -p module=entry@default assembleHap`。设备测试包把 module 限定符换成 `entry@ohosTest`。
+- **签名材料保护**：`build-profile.json5` 含签名密码，用 `git update-index --skip-worktree build-profile.json5` 挡在提交外；每次提交前用 `git ls-files -v | grep ^S` 复核标志还在。
+- ArkTS 严格模式高频坑：
+  - 复杂递归避免闭包自引用，用类静态方法 + 栈式实现（SseDecoder、MathConverter.walk 都是这个形态）。
+  - 运行时形状不确定的数据（如响应头可能是 `Record<string,string>` 或 `Array<Array<string>>`）先 try-catch 内断言、逐形状兼容（ApiClient.headerValue）。
+  - 用 Edit 工具改 import 块时容易把整块重复插入 → Duplicate identifier 编译错；改完先 grep 确认唯一。
+
+## ArkUI / 状态管理（V2）
+
+- @ComponentV2 体系：@Param 入参、@Local 私有态、@Trace 深层可观察；跨页共享状态用 @ObservedV2 单例（SettingsStore/ChatStore），组件里 `SettingsStore.get()` 直接绑 @Trace 字段即可刷新。
+- `Text` 只能包含 `Span`：嵌套强调/链接/公式树要先拍平成一层带样式的 Span（MarkdownView.FlatSpan），别指望 Text 里放组件。
+- 自适应高度容器里 `Rect + height('100%')` 会按父级下发的视口约束解析，把元素撑到近一屏高——画竖条/分隔线用 `border` 而不是 Rect（引用块竖条踩过）。
+- 页面底部"露分界线/被裁切"：给 Scroll 内容和页面根容器都加 `.expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])`，让底色延伸进手势条避让区；文字滚动区自己留 bottom padding。
+- 状态栏高度启动时取 `getWindowAvoidArea(TYPE_SYSTEM).topRect.height / density` 写进 AppStorage（safeTopVp），顶部胶囊/抽屉钮据此定位；不要硬编码。
+- 键盘弹出会挤压输入 dock，高度要走窗口监听动态调整，不能用固定值。
+- 流式重渲场景 ForEach 键要用稳定语义（内容无关的 `f${i}`），避免整树重建闪烁。
+
+## 网络与 SSE
+
+- **requestInStream 的 Promise 在部分设备上要等整段流结束才 resolve**（期间 statusCode 恒 0）——流式判定不能等 Promise，必须在 headers receive 回调里按 `content-type: text/event-stream` 立即切流式，否则流式回复被当成失败（ApiClient 踩过，真机必现）。
+- SSE 错误有两种形状：`event: error` 帧和 JSON payload 内的 `error` 字段，两条路都要解析。
+- 网络定位：`hilog -x | grep -a '<bundle>' | grep NETSTACK` 能看到每次请求的 method/RespCode/耗时；先 `hilog -r` 清环缓冲再复现动作。
+- DeepSeek 模型实际输出三种数学定界符：`$$…$$`、`\[…\]`、`\(…\)`，解析器三个都要支持，少一个就漏渲染。
+
+## 数据层
+
+- RelationalStore 事务：`createTransaction()` → 操作 → `commit()`，catch 里 `rollback()` 并保留原错误；历史导入用"先删后插"的事务化原子替换，失败回滚保原数据。
+- 结构变更必须递增 `SCHEMA_VERSION` 并在启动迁移；会话新增字段（如 rootMessageId）必须写进 bucket 落盘，否则重启丢失（根级分支切换踩过）。
+
+## 真机自动化（hdc/uitest）
+
+- `uiInput inputText` 输入的是 IME 未上屏组合串：下一次 `uiInput click`（包括点发送键）会把它清掉，应用 onChange 不触发、发送无效。正确流程：Back 收键盘 → 点输入框 → 等 1.5s 键盘弹起 → inputText（用抬升后的坐标）→ dumpLayout 取发送键实时 bounds → 点击 → dump 验证用户气泡真的出现。
+- 键盘弹起后别点旧坐标：底部旧坐标会命中 IME 按键（如话筒键）；剪贴板建议条出现/消失还会让 dock 整体 ±48px。**每次点击前 dumpLayout 取实时 bounds**。
+- 界面结构用 `uitest dumpLayout -p <path> -b <bundle>` 看树，不肉眼猜坐标；截屏 `screenCap -p`。
+- 测模型行为用**确定性提示**（如"不要用代码块，原样输出以下三行：$$…$$ 和 \[…\] 和 \(…\)"），绕开模型自发选择输出格式的随机性。bash 里传 `$$`/`\[` 要转义（`\$\$`、`\\[`）。
+
+## 测试策略
+
+- 纯逻辑（SSE 解码、Markdown/数学转换、错误码映射、峰谷判定）全部进 hypium 单测 `entry/src/ohosTest/ets/test/Core.test.ets`：放 ohosTest 源集是因为它既能在 IDE 设备测试里跑，也能被 `scripts\test.cmd` 脚本化（构建测试包 → `aa test` → 自动恢复正式包）；src/test 本地套件需要 IDE 且不能脚本化，只留模板冒烟。
+- 一次 ohosTest 构建失败的教训：跨源集 import（src/test ↔ src/main）在本地测试与设备测试编译里解析规则不同，`any` 报错全是 import 解析失败的级联效应，先修路径再看类型。
+- UI/流式行为在真机人工验收：改代码 → 构建通过 → `scripts\install.cmd` 装机 → 人工点验。自动化截图循环只在外观回归时才值得。
