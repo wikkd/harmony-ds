@@ -13,6 +13,12 @@ export struct PrivacyPolicyPage {
             this.section(I18n.translate('privacyPolicySection1Title'), I18n.translate('privacyPolicySection1Body'));
             this.section(I18n.translate('privacyPolicySection2Title'), I18n.translate('privacyPolicySection2Body'));
             this.section(I18n.translate('privacyPolicySection3Title'), I18n.translate('privacyPolicySection3Body'));
+            this.section(I18n.translate('privacyPolicySection4Title'), I18n.translate('privacyPolicySection4Body'));
+            this.section(I18n.translate('privacyPolicySection5Title'), I18n.translate('privacyPolicySection5Body'));
+            this.section(I18n.translate('privacyPolicySection6Title'), I18n.translate('privacyPolicySection6Body'));
+            this.section(I18n.translate('privacyPolicySection7Title'), I18n.translate('privacyPolicySection7Body'));
+            this.section(I18n.translate('privacyPolicySection8Title'), I18n.translate('privacyPolicySection8Body'));
+            this.section(I18n.translate('privacyPolicySection9Title'), I18n.translate('privacyPolicySection9Body'));
           }
           .alignItems(HorizontalAlign.Start)
           .padding({ left: Dim.pagePadding, right: Dim.pagePadding, top: Dim.pagePadding, bottom: 44 })

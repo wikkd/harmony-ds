@@ -245,6 +245,9 @@ export struct SettingsPage {
               this.sectionHeader('about')
               Column() {
                 this.infoRow('version', $r('app.media.ic_public_upgrade'), '1.0.0')
+                this.optionRow('userAgreementTitle', $r('app.media.ic_public_text'), (): string => '', (): void => {
+                  this.pathStack.pushPathByName('agreement', null);
+                })
                 this.optionRow('privacyPolicyTitle', $r('app.media.ic_public_privacy'), (): string => '', (): void => {
                   this.pathStack.pushPathByName('privacy', null);
                 })

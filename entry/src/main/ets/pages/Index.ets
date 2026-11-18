@@ -12,6 +12,7 @@ import { ReplyEngine } from '../service/chat/ReplyEngine';
 import { Dim } from '../common/DesignTokens';
 import { DrawerButton, StatusCapsule } from '../components/titlebar/TopControls';
 import { PrivacyPolicyPage } from '../components/privacy/PrivacyPolicyPage';
+import { UserAgreementPage } from '../components/privacy/UserAgreementPage';
 import { MessageList } from '../components/messages/MessageList';
 import { ChatInput } from '../components/chatinput/ChatInput';
 import { Sider } from '../components/sider/Sider';
@@ -76,6 +77,8 @@ struct Index {
   pageMap(name: string) {
     if (name === 'privacy') {
       PrivacyPolicyPage()
+    } else if (name === 'agreement') {
+      UserAgreementPage()
     } else if (name === 'settings') {
       SettingsPage({ pathStack: this.pathStack })
     } else if (name === 'usage') {
