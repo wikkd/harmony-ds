@@ -57,13 +57,6 @@ const DOC_SUFFIX_FILTERS: string[] = [
   '.epub', '.mobi', '.eml', '.msg',
 ];
 
-export interface FileObject {
-  id: string;
-  sizeBytes: number;
-  filename: string;
-  mimeType: string;
-}
-
 /**
  * 附件服务：picker 选择 → 拷贝到应用沙箱 → 上传 Files API（purpose 判定）→ FileAttachment。
  * 对齐原项目 attachments.ts / uploadExts.ts 的核心流程。

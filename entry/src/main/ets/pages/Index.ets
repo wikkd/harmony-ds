@@ -677,14 +677,14 @@ struct ChatView {
 }
 
 /** 排队待发消息 */
-export class QueuedSend {
+class QueuedSend {
   id: string = '';
   text: string = '';
   files: FileAttachment[] = [];
 }
 
 /** 会话上下文用量统计 */
-export class ContextStat {
+class ContextStat {
   used: number = 0;
   lastOutput: number = 0;
   sessionInput: number = 0;

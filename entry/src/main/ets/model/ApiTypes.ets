@@ -3,9 +3,6 @@
  * 流式事件在 EventParser 中解析为本文件类型。
  */
 
-export type ChatModel = 'deepseek-flash' | 'deepseek-v4-pro';
-export const DEFAULT_MODEL: ChatModel = 'deepseek-flash';
-
 /** 正文引用：服务端把模型的引用标记还原为来源 */
 export class TextCitation {
   url: string = '';

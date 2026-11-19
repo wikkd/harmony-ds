@@ -775,7 +775,7 @@ ${persona}`;
 }
 
 /** 历史轮次对 */
-export class UserAssistantPair {
+class UserAssistantPair {
   user: UserMessage;
   reply: AssistantMessage;
 

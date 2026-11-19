@@ -321,7 +321,7 @@ export struct ChatInput {
         Divider().color($r('app.color.list_separator')).strokeWidth(1)
         Row() {
           Text(I18n.translate('compactAction'))
-            .fontSize($r('app.float.font_body3'))
+            .fontSize(Fonts.body3())
             .fontColor($r('app.color.brand_activated'))
         }
         .width('100%')

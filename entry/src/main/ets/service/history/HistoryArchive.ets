@@ -9,13 +9,11 @@ import {
   Message,
   ReplyBlock,
   ReplyError,
-  ReplyStatus,
   ServerToolPart,
   Session,
   TextPart,
   ThinkingPart,
   UserMessage,
-  isAssistant,
 } from '../../model/ChatTypes';
 import { MessageUsage, ProtocolFetchResultBlock, ProtocolSearchResultBlock, SearchResult, StopReason } from '../../model/ApiTypes';
 import { Id } from '../../common/Format';

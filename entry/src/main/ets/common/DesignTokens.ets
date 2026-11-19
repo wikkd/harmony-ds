@@ -31,10 +31,3 @@ export class Dim {
   /** 侧栏抽屉从 sm/md 展开的阈值 */
   static readonly siderPermanentBp: number = 840;
 }
-
-/** 官方断点枚举 */
-export enum Breakpoint {
-  SM = 'sm',
-  MD = 'md',
-  LG = 'lg'
-}

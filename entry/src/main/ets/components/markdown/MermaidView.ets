@@ -40,7 +40,7 @@ class SeqMessage {
   dashed: boolean = false;
 }
 
-export class MermaidParser {
+class MermaidParser {
   static parse(src: string): FlowGraph | null {
     const lines = src.replace(/\r/g, '').split('\n');
     const first = lines.length > 0 ? lines[0].trim() : '';
