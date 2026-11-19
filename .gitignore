@@ -12,3 +12,7 @@
 /.appanalyzer
 /.design
 /scripts/*.log/.zcode
+
+# 图标生成临时产物
+/scripts/_bg
+/scripts/_icon_preview.png
