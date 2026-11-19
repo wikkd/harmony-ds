@@ -68,6 +68,7 @@ export class ReplyEngine {
       aborter.abort();
       ReplyEngine.aborters.delete(sessionId);
     }
+    ReplyEngine.blockIndexes.delete(sessionId);
     const store = ChatStore.get();
     if (store.streamingSessionId === sessionId) {
       store.setStreaming(null);
@@ -80,7 +81,9 @@ export class ReplyEngine {
         const a = reply as AssistantMessage;
         ReplyEngine.settle(a, 'stopped', Date.now(), null);
         store.refreshVisible(session);
-        store.persistMessage(session, a).catch(() => {});
+        store.persistMessage(session, a).catch((e: object) => {
+          Logger.warn(TAG, `persist stopped reply failed: ${JSON.stringify(e)}`);
+        });
       }
       ReplyEngine.pending.delete(sessionId);
     }
@@ -123,14 +126,19 @@ export class ReplyEngine {
     store.refreshVisible(session);
     store.setStreaming(sessionId);
     ReplyEngine.pending.set(sessionId, { sessionId, assistantId: reply.id, question });
-    // 持久化提问与占位回复
-    await store.persistMessage(session, userMsg);
-    await store.persistMessage(session, reply);
-    if (userMsg.parentId !== null) {
-      const parent = store.findMessage(session, userMsg.parentId);
-      if (parent !== null) {
-        await store.persistMessage(session, parent);
+    // 持久化提问与占位回复（失败不能卡死流式态：清理后以本地错误收尾）
+    try {
+      await store.persistMessage(session, userMsg);
+      await store.persistMessage(session, reply);
+      if (userMsg.parentId !== null) {
+        const parent = store.findMessage(session, userMsg.parentId);
+        if (parent !== null) {
+          await store.persistMessage(session, parent);
+        }
       }
+    } catch (err) {
+      ReplyEngine.failPersist(sessionId, reply, err as object);
+      return;
     }
 
     const latestReminder = LatestReminder.create();
@@ -183,7 +191,27 @@ export class ReplyEngine {
     if (session !== null) {
       store.refreshVisible(session);
       ReplyEngine.settle(reply, 'error', Date.now(), re);
-      store.persistMessage(session, reply).catch(() => {});
+      store.persistMessage(session, reply).catch((e: object) => {
+        Logger.warn(TAG, `persist error reply failed: ${JSON.stringify(e)}`);
+      });
+    }
+  }
+
+  /** 持久化失败收尾（流式启动前）：清理流式态并把占位回复标为本地错误，避免 UI 永久卡死 */
+  private static failPersist(sessionId: string, reply: AssistantMessage, err: object): void {
+    Logger.error(TAG, `persist after streaming-start failed: ${JSON.stringify(err)}`);
+    const store = ChatStore.get();
+    ReplyEngine.pending.delete(sessionId);
+    if (store.streamingSessionId === sessionId) {
+      store.setStreaming(null);
+    }
+    const re = new ReplyError();
+    re.kind = 'protocol';
+    re.message = 'persist failed';
+    const session = store.sessionById(sessionId);
+    if (session !== null) {
+      store.refreshVisible(session);
+      ReplyEngine.settle(reply, 'error', Date.now(), re);
     }
   }
 
@@ -222,8 +250,13 @@ export class ReplyEngine {
     store.refreshVisible(session);
     store.setStreaming(sessionId);
     ReplyEngine.pending.set(sessionId, { sessionId, assistantId: reply.id, question });
-    await store.persistMessage(session, reply);
-    await store.persistMessage(session, userMsg as UserMessage);
+    try {
+      await store.persistMessage(session, reply);
+      await store.persistMessage(session, userMsg as UserMessage);
+    } catch (err) {
+      ReplyEngine.failPersist(sessionId, reply, err as object);
+      return;
+    }
 
     const latestReminder = LatestReminder.create();
     reply.latestReminder = latestReminder;
@@ -283,13 +316,18 @@ export class ReplyEngine {
     store.refreshVisible(session);
     store.setStreaming(sessionId);
     ReplyEngine.pending.set(sessionId, { sessionId, assistantId: reply.id, question: newText });
-    await store.persistMessage(session, userMsg);
-    await store.persistMessage(session, reply);
-    if (parentId !== null) {
-      const parent = store.findMessage(session, parentId);
-      if (parent !== null) {
-        await store.persistMessage(session, parent);
+    try {
+      await store.persistMessage(session, userMsg);
+      await store.persistMessage(session, reply);
+      if (parentId !== null) {
+        const parent = store.findMessage(session, parentId);
+        if (parent !== null) {
+          await store.persistMessage(session, parent);
+        }
       }
+    } catch (err) {
+      ReplyEngine.failPersist(sessionId, reply, err as object);
+      return;
     }
 
     const latestReminder = LatestReminder.create();
@@ -319,13 +357,17 @@ export class ReplyEngine {
 
   /**
    * compact：把当前可见链压缩为摘要存入会话（压缩点=最后一条可见消息）。
-   * 返回 'ok' | 'too_short'；请求失败抛 ApiError。
+   * 返回 'ok' | 'too_short' | 'busy'（流式进行中拒绝）；请求失败抛 ApiError。
    */
   static async compact(sessionId: string): Promise<string> {
     const store = ChatStore.get();
     const session = store.sessionById(sessionId);
-    if (session === null || store.streamingSessionId !== null) {
+    if (session === null) {
       return 'too_short';
+    }
+    if (store.streamingSessionId !== null) {
+      // 语义区分：流式进行中≠会话太短，UI 提示不同文案
+      return 'busy';
     }
     const visible = store.visible;
     const rounds = RequestBodyBuilder.getContextRounds(visible);
@@ -518,7 +560,9 @@ export class ReplyEngine {
       const reply = found as AssistantMessage;
       ReplyEngine.settle(reply, 'done', Date.now(), null);
       store.refreshVisible(session);
-      store.persistMessage(session, reply).catch(() => {});
+      store.persistMessage(session, reply).catch((e: object) => {
+        Logger.warn(TAG, `persist done reply failed: ${JSON.stringify(e)}`);
+      });
       NotifyService.replySettled(store.displayTitle(session), false).catch(() => {});
       LiveViewService.replyEnded().catch(() => {});
     }
@@ -546,7 +590,9 @@ export class ReplyEngine {
       reply.error = re;
       ReplyEngine.settle(reply, 'error', Date.now(), re);
       store.refreshVisible(session);
-      store.persistMessage(session, reply).catch(() => {});
+      store.persistMessage(session, reply).catch((e: object) => {
+        Logger.warn(TAG, `persist error reply failed: ${JSON.stringify(e)}`);
+      });
       NotifyService.replySettled(store.displayTitle(session), true).catch(() => {});
       LiveViewService.replyEnded().catch(() => {});
     }

@@ -287,7 +287,7 @@ export struct ChatView {
     this.getUIContext().getPromptAction()
       .showToast({ message: I18n.translate('compactRunning'), duration: Motion.toastMax });
     ReplyEngine.compact(this.store.currentSessionId).then((r: string) => {
-      const key = r === 'ok' ? 'compactDone' : 'compactTooShort';
+      const key = r === 'ok' ? 'compactDone' : (r === 'busy' ? 'compactBusy' : 'compactTooShort');
       this.getUIContext().getPromptAction().showToast({ message: I18n.translate(key), duration: Motion.toastMid });
     }).catch(() => {
       this.getUIContext().getPromptAction()
