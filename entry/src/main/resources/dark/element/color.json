@@ -12,7 +12,7 @@
     { "name": "text_field_sub_bg", "value": "#1AFFFFFF"},
     { "name": "search_bg", "value": "#1AFFFFFF"},
     { "name": "code_block_bg", "value": "#2E3033"},
-    { "name": "text_primary", "value": "#DBFFFFFF"},
+    { "name": "text_primary", "value": "#E5FFFFFF"},
     { "name": "text_primary_contrary", "value": "#E5E5E5"},
     { "name": "text_secondary", "value": "#99FFFFFF"},
     { "name": "text_tertiary", "value": "#66FFFFFF"},
@@ -31,7 +31,7 @@
     { "name": "mask_regular", "value": "#B3000000"},
     { "name": "badge_red", "value": "#D94838"},
     { "name": "hyperlink", "value": "#5291FF"},
-    { "name": "titlebar_icon", "value": "#DBFFFFFF"},
+    { "name": "titlebar_icon", "value": "#E5FFFFFF"},
     { "name": "switch_outline_off", "value": "#66FFFFFF"},
     { "name": "switch_bg_off", "value": "#33000000"},
     { "name": "thinking_bg", "value": "#40317AF7"},
@@ -41,6 +41,8 @@
     { "name": "blur_dialog", "value": "#A8202224"},
     { "name": "blur_input", "value": "#801E2022"},
     { "name": "settings_bg", "value": "#000000"},
+    { "name": "interactive_pressed", "value": "#19FFFFFF"},
+    { "name": "interactive_hover", "value": "#0CFFFFFF"},
     { "name": "sider_bg", "value": "#1E2022"},
     { "name": "input_panel_bg", "value": "#1E2022"}
   ]

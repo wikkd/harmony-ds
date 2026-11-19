@@ -42,4 +42,20 @@ export class Fonts {
   static caption(): number {
     return Math.round(10 * Fonts.scale() * 10) / 10;
   }
+
+  /**
+   * 官方字重阶梯（「文本排版」）：Title 档 Bold，Subtitle 与 Body_L Medium，Body_M/S、Caption Regular。
+   * 阶梯对应：headline6~9=Title/Subtitle 档，body1=Body_L，body2=Body_M，body3/caption=Caption 档。
+   */
+  static weightTitle(): FontWeight {
+    return FontWeight.Bold;
+  }
+
+  static weightMedium(): FontWeight {
+    return FontWeight.Medium;
+  }
+
+  static weightRegular(): FontWeight {
+    return FontWeight.Normal;
+  }
 }

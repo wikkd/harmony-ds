@@ -62,7 +62,7 @@ export struct SettingRow {
     .height(Dim.rowHeight)
     .padding({ left: 16, right: 16 })
     .backgroundColor(this.carded ? $r('app.color.card_bg') : Color.Transparent)
-    .borderRadius(this.carded ? Dim.radiusL : 0)
+    .borderRadius(this.carded ? Dim.radiusM : 0)
     .clickEffect(this.tappable ? { level: ClickEffectLevel.LIGHT, scale: 0.98 } : { level: ClickEffectLevel.LIGHT, scale: 1 })
     .onClick(() => {
       if (this.tappable) {

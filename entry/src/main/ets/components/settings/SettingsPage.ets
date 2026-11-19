@@ -90,7 +90,7 @@ export struct SettingsPage {
                 })
               }
               .backgroundColor($r('app.color.card_bg'))
-              .borderRadius(Dim.radiusL)
+              .borderRadius(Dim.radiusM)
               .width('100%')
               .padding({ top: 6, bottom: 6 })
 
@@ -126,7 +126,7 @@ export struct SettingsPage {
                 })
               }
               .backgroundColor($r('app.color.card_bg'))
-              .borderRadius(Dim.radiusL)
+              .borderRadius(Dim.radiusM)
               .width('100%')
               .padding({ top: 6, bottom: 6 })
 
@@ -178,7 +178,7 @@ export struct SettingsPage {
                 })
               }
               .backgroundColor($r('app.color.card_bg'))
-              .borderRadius(Dim.radiusL)
+              .borderRadius(Dim.radiusM)
               .width('100%')
               .padding({ top: 6, bottom: 6 })
 
@@ -205,7 +205,7 @@ export struct SettingsPage {
                 })
               }
               .backgroundColor($r('app.color.card_bg'))
-              .borderRadius(Dim.radiusL)
+              .borderRadius(Dim.radiusM)
               .width('100%')
               .padding({ top: 6, bottom: 6 })
 
@@ -254,7 +254,7 @@ export struct SettingsPage {
                 })
               }
               .backgroundColor($r('app.color.card_bg'))
-              .borderRadius(Dim.radiusL)
+              .borderRadius(Dim.radiusM)
               .width('100%')
               .padding({ top: 6, bottom: 6 })
 
@@ -293,7 +293,7 @@ export struct SettingsPage {
                 })
               }
               .backgroundColor($r('app.color.card_bg'))
-              .borderRadius(Dim.radiusL)
+              .borderRadius(Dim.radiusM)
               .width('100%')
               .padding({ top: 6, bottom: 6 })
 
@@ -311,7 +311,7 @@ export struct SettingsPage {
                 })
               }
               .backgroundColor($r('app.color.card_bg'))
-              .borderRadius(Dim.radiusL)
+              .borderRadius(Dim.radiusM)
               .width('100%')
               .padding({ top: 6, bottom: 6 })
 
@@ -362,7 +362,7 @@ export struct SettingsPage {
                 })
               }
               .backgroundColor($r('app.color.card_bg'))
-              .borderRadius(Dim.radiusL)
+              .borderRadius(Dim.radiusM)
               .width('100%')
               .padding({ top: 6, bottom: 6 })
               Text(I18n.translate('portingFrom'))
@@ -460,7 +460,7 @@ export struct SettingsPage {
           .width('82%')
           .constraintSize({ maxWidth: 360 })
           .backgroundColor($r('app.color.dialog_bg'))
-          .borderRadius(Dim.radiusL)
+          .borderRadius(Dim.radiusXL)
           .clip(true)
           .transition(TransitionEffect.OPACITY.combine(TransitionEffect.scale({ x: 0.95, y: 0.95 }))
             .animation({ duration: Motion.animFast, curve: Curve.Smooth }))

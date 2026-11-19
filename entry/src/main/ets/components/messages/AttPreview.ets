@@ -36,7 +36,7 @@ export struct AttPreview {
         .width(168)
         .height(168)
         .objectFit(ImageFit.Cover)
-        .borderRadius(Dim.radiusL)
+        .borderRadius(Dim.radiusM)
         .alt($r('app.media.ic_public_picture'))
         .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.96 })
         .onClick(() => {

@@ -92,7 +92,7 @@ export struct ModelConfigPage {
             }
             .padding(16)
             .backgroundColor($r('app.color.card_bg'))
-            .borderRadius(Dim.radiusL)
+            .borderRadius(Dim.radiusM)
             .width('100%')
 
             Column({ space: 8 }) {
@@ -155,7 +155,7 @@ export struct ModelConfigPage {
             }
             .padding(16)
             .backgroundColor($r('app.color.card_bg'))
-            .borderRadius(Dim.radiusL)
+            .borderRadius(Dim.radiusM)
             .width('100%')
           }
           .padding({ left: this.contentPad, right: this.contentPad, top: 4, bottom: 44 })

@@ -12,7 +12,7 @@
     { "name": "text_field_sub_bg", "value": "#0D000000"},
     { "name": "search_bg", "value": "#F1F3F5"},
     { "name": "code_block_bg", "value": "#F1F3F5"},
-    { "name": "text_primary", "value": "#E6000000"},
+    { "name": "text_primary", "value": "#E5000000"},
     { "name": "text_primary_contrary", "value": "#FFFFFF"},
     { "name": "text_secondary", "value": "#99000000"},
     { "name": "text_tertiary", "value": "#66000000"},
@@ -31,7 +31,7 @@
     { "name": "mask_regular", "value": "#99000000"},
     { "name": "badge_red", "value": "#E84026"},
     { "name": "hyperlink", "value": "#0A59F7"},
-    { "name": "titlebar_icon", "value": "#E6000000"},
+    { "name": "titlebar_icon", "value": "#E5000000"},
     { "name": "switch_outline_off", "value": "#66000000"},
     { "name": "switch_bg_off", "value": "#33FFFFFF"},
     { "name": "thinking_bg", "value": "#0D0A59F7"},
@@ -41,6 +41,8 @@
     { "name": "blur_dialog", "value": "#A8FFFFFF"},
     { "name": "blur_input", "value": "#66FFFFFF"},
     { "name": "settings_bg", "value": "#F1F3F5"},
+    { "name": "interactive_pressed", "value": "#19000000"},
+    { "name": "interactive_hover", "value": "#0C000000"},
     { "name": "sider_bg", "value": "#F1F3F5"},
     { "name": "input_panel_bg", "value": "#F1F3F5"}
   ]
