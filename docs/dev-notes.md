@@ -61,3 +61,13 @@ chat-demo → 鸿蒙原生移植（M1–M12）过程中沉淀的实操经验，�
 - 宽屏（≥840vp）常驻侧栏的让位必须用**布局手段**（padding/margin），不能只用 translate：translate 不改布局宽度，`width('100%')` 子件仍按全窗宽居中，内容整体右偏且右缘被推出屏幕（主页欢迎态/输入面板/消息列表全部中招）。
 - **Scroll 内容里 Row 不要用 `Blank()` 撑开**：平板实测 Row 内 Blank 会把同 Row 的 Text/Image 节点整个吞掉（树里都没有），同样代码在设置页 optionRow（用 `Text.layoutWeight(1)`，无 Blank）正常。撑开一律 `layoutWeight(1)`。
 - `@ComponentV2` 子组件的回调入参必须 `@Param`（普通属性禁止父级初始化，10905324）。
+
+## 2026-11-19 全项目重构沉淀
+
+- **文件地图（重构后）**：pages/ 三文件（Index=路由+首启合规弹窗、HomePage=抽屉壳、ChatView=会话编排+排队/压缩）；components/messages/ 三文件（MessageList=列表骨架+用户行、AssistantBody=助手正文+TTS/引用卡、AttPreview=缩略图）；components/settings/SettingRow=设置行统一子组件（carded/danger/toggle 一体，规避平板 @Builder 吞文字怪癖）；components/privacy/LegalDocPage=隐私政策/用户协议共用骨架；service/chat/RequestBodyBuilder=请求构建纯函数（自 ReplyEngine 拆出，compact 复用其 getContextRounds/assistantTextParam）；common/i18n/ 8 个分域词条文件（I18n.ets 只留合并+translate，zh/en 导出常量供 parity 单测）。
+- **导出失败根因**（平板 export failed: {}）：产物固定名 `deepseek_data-YYYYMMDD.zip` 且从不删除，`zlib.zipFile` 压到已存在目标即失败——首次成功当天必复现。修复=秒级时间戳命名+压缩前防御 unlink+沙箱产物 finally 删除。**教训：`JSON.stringify(err)` 对 Error 恒得 `{}`（message/stack 非枚举），错误日志必须逐字段记 BusinessError.code/message。**
+- **流式健壮性**：`setStreaming` 之后的任何 `await persistMessage` 都必须 try/catch 收尾（failPersist），否则 DB 异常让 UI 永久卡在流式态；兜底持久化的空 `.catch(() => {})` 会静默丢回复，至少要 Logger.warn。
+- **zlib.zipFile 虽 API 9 起标记废弃**，但对目录压缩无同位替代（compressFile 只收文件），本次保持使用；换 API 需真机回归。
+- **注释里别写 `att_*/cam_*` 这类含 `*/` 的通配符**：块注释提前终止，后续代码被当代码解析，报错点远离真因（全是级联 any/undefined 错）。
+- 重构批量替换用 sed 时按形态分三类核对（`{ X,` 开键、`, X }` 中键、独立行），替换后 `grep 残留` + 全量构建兜底；Motion token 替换 40 处即靠三段式 grep 收敛。
+- zh/en 词条 parity 与空值已入单测（Core.test i18n 套件）；词条增删后跑 `node scripts/i18n_audit.mjs` 可再审计死词条。
