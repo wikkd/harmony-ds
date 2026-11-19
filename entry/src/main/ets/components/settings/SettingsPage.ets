@@ -399,7 +399,7 @@ export struct SettingsPage {
             .onClick(() => {
               this.closeDialog();
             })
-            .transition(TransitionEffect.OPACITY.animation({ duration: Motion.animFast, curve: Curve.Smooth }))
+            .transition(TransitionEffect.OPACITY.animation({ duration: Motion.animFast, curve: Motion.curveStd }))
           Column() {
             if (this.dialogHasIcon && this.dialogIcon !== null) {
               Image(this.dialogIcon)
@@ -434,6 +434,11 @@ export struct SettingsPage {
                   .width('100%')
                   .height(48)
                   .padding({ left: 20, right: 20 })
+                  .stateStyles({
+                    pressed: {
+                      .backgroundColor($r('app.color.interactive_pressed'))
+                    },
+                  })
                   .onClick(() => {
                     this.dialogPending = idx;
                   })
@@ -462,8 +467,9 @@ export struct SettingsPage {
           .backgroundColor($r('app.color.dialog_bg'))
           .borderRadius(Dim.radiusXL)
           .clip(true)
+          // 弹窗入场用官方减速曲线（新元素入场场景），时长升到局部档
           .transition(TransitionEffect.OPACITY.combine(TransitionEffect.scale({ x: 0.95, y: 0.95 }))
-            .animation({ duration: Motion.animFast, curve: Curve.Smooth }))
+            .animation({ duration: Motion.animBase, curve: Motion.curveIn }))
         }
       }
       .width('100%')
@@ -516,7 +522,7 @@ export struct SettingsPage {
     this.dialogOnSelect = onSelect;
     this.dialogHasIcon = icon !== undefined;
     this.dialogIcon = icon !== undefined ? icon : null;
-    this.getUIContext().animateTo({ duration: Motion.animFast, curve: Curve.Smooth }, () => {
+    this.getUIContext().animateTo({ duration: Motion.animBase, curve: Motion.curveIn }, () => {
       this.dialogVisible = true;
     });
   }
@@ -527,7 +533,7 @@ export struct SettingsPage {
   }
 
   private closeDialog(): void {
-    this.getUIContext().animateTo({ duration: Motion.animFast, curve: Curve.Smooth }, () => {
+    this.getUIContext().animateTo({ duration: Motion.animFast, curve: Motion.curveStd }, () => {
       this.dialogVisible = false;
     });
   }

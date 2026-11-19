@@ -1,3 +1,4 @@
+import { Fonts } from '../../common/Fonts';
 import { Dim } from '../../common/DesignTokens';
 
 /** 二级页面通用页头：灰色圆形返回钮 + 居中标题（仿官方设置子页） */
@@ -16,7 +17,7 @@ export struct PageHeader {
       }
       .width(40)
       .height(40)
-      .borderRadius(20)
+      .borderRadius(Dim.radiusL)
       .backgroundColor($r('app.color.component_normal'))
       .justifyContent(FlexAlign.Center)
       .alignItems(VerticalAlign.Center)
@@ -26,7 +27,7 @@ export struct PageHeader {
       })
       Blank()
       Text(this.title)
-        .fontSize(17)
+        .fontSize(Fonts.headline9())
         .fontWeight(FontWeight.Medium)
         .fontColor($r('app.color.text_primary'))
       Blank()

@@ -110,16 +110,21 @@ export struct ChatView {
         if (this.store.visible.length === 0) {
           Column() {
             Blank()
+            // 秩序感编排：图标→标语错峰入场（官方「成组元素有节奏的时间差」）
             Image($r('app.media.ic_public_message_filled'))
               .width(56)
               .height(56)
               .fillColor($r('app.color.brand'))
               .margin({ bottom: 20 })
+              .transition(TransitionEffect.OPACITY.combine(TransitionEffect.scale({ x: 0.9, y: 0.9 }))
+                .animation({ duration: Motion.animBase, curve: Motion.curveIn }))
             Text(I18n.translate('welcomeMessageChat250808'))
               .fontSize(Fonts.headline6())
               .fontWeight(FontWeight.Medium)
               .fontColor($r('app.color.text_primary'))
               .textAlign(TextAlign.Center)
+              .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 10 }))
+                .animation({ duration: Motion.animBase, curve: Motion.curveIn, delay: 80 }))
             Blank()
           }
           .constraintSize({ maxWidth: Dim.contentMaxWidth })
@@ -185,6 +190,9 @@ export struct ChatView {
               .padding({ left: 12, right: 12 })
               .backgroundColor($r('app.color.component_normal'))
               .borderRadius(Dim.radiusM)
+              // 队列条进出场：弹簧（可打断）
+              .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 8 }))
+                .animation({ curve: Motion.spring }))
             }, (q: QueuedSend) => q.id)
           }
           .width('100%')

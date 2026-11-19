@@ -63,6 +63,12 @@ export struct SettingRow {
     .padding({ left: 16, right: 16 })
     .backgroundColor(this.carded ? $r('app.color.card_bg') : Color.Transparent)
     .borderRadius(this.carded ? Dim.radiusM : 0)
+    // 按压态（官方通用按压交互色）：抬起回落基础色；开关行同样给按压反馈（系统设置同款）
+    .stateStyles({
+      pressed: {
+        .backgroundColor($r('app.color.interactive_pressed'))
+      },
+    })
     .clickEffect(this.tappable ? { level: ClickEffectLevel.LIGHT, scale: 0.98 } : { level: ClickEffectLevel.LIGHT, scale: 1 })
     .onClick(() => {
       if (this.tappable) {

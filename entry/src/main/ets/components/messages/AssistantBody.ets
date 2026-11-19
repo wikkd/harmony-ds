@@ -100,7 +100,8 @@ export struct AssistantBody {
           }
           .width('100%')
           .onClick(() => {
-            this.getUIContext().animateTo({ duration: Motion.animBase, curve: Curve.Smooth }, (): void => {
+            // 展开收起用弹簧曲线：可打断、时长物理自适应（引力动效「控制感」）
+            this.getUIContext().animateTo({ curve: Motion.spring }, (): void => {
               this.thinkingOpen = !this.thinkingOpen;
             });
           })
@@ -117,7 +118,7 @@ export struct AssistantBody {
             }
             .width('100%')
             .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 8 }))
-              .animation({ duration: Motion.animBase, curve: Curve.Smooth }))
+              .animation({ curve: Motion.spring }))
           }
         }
         .padding(10)
@@ -162,7 +163,7 @@ export struct AssistantBody {
           }
           .width('100%')
           .onClick(() => {
-            this.getUIContext().animateTo({ duration: Motion.animBase, curve: Curve.Smooth }, (): void => {
+            this.getUIContext().animateTo({ curve: Motion.spring }, (): void => {
               this.sourcesOpen = !this.sourcesOpen;
             });
           })
@@ -199,6 +200,11 @@ export struct AssistantBody {
                 .padding(8)
                 .backgroundColor($r('app.color.code_block_bg'))
                 .borderRadius(Dim.radiusS)
+                .stateStyles({
+                  pressed: {
+                    .backgroundColor($r('app.color.interactive_pressed'))
+                  },
+                })
                 .onClick(() => {
                   openUrl(card.url);
                 })
@@ -206,7 +212,7 @@ export struct AssistantBody {
             }
             .width('100%')
             .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 8 }))
-              .animation({ duration: Motion.animBase, curve: Curve.Smooth }))
+              .animation({ curve: Motion.spring }))
           }
         }
         .padding(10)
@@ -257,6 +263,8 @@ export struct AssistantBody {
             .width(16)
             .height(16)
             .fillColor($r('app.color.text_tertiary'))
+            // 16vp 小图标：热区外扩到 40×40（UX 2.1.3.3）
+            .responseRegion({ x: -12, y: -12, width: 40, height: 40 })
             .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
             .onClick(() => {
               // 生成合成内容标识：复制文本附带显式标识（标识办法要求导出/复制可感知）
@@ -272,6 +280,7 @@ export struct AssistantBody {
               .width(16)
               .height(16)
               .fillColor($r('app.color.text_tertiary'))
+              .responseRegion({ x: -12, y: -12, width: 40, height: 40 })
               .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
               .onClick(() => {
                 this.toggleTts(this.message);
@@ -281,6 +290,7 @@ export struct AssistantBody {
             .width(16)
             .height(16)
             .fillColor($r('app.color.text_tertiary'))
+            .responseRegion({ x: -12, y: -12, width: 40, height: 40 })
             .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
             .onClick(() => {
               this.onRegenerate();

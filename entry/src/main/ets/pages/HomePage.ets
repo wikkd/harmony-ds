@@ -125,13 +125,14 @@ export struct HomePage {
   }
 
   private openDrawer(): void {
-    this.getUIContext().animateTo({ duration: Motion.animSlow, curve: Curve.Smooth }, (): void => {
+    // 松手吸附用弹簧曲线：可打断、继承手势速度（官方引力动效「控制感」）
+    this.getUIContext().animateTo({ curve: Motion.spring }, (): void => {
       this.drawerProgress = 1;
     });
   }
 
   private closeDrawer(): void {
-    this.getUIContext().animateTo({ duration: Motion.animSlow, curve: Curve.Smooth }, (): void => {
+    this.getUIContext().animateTo({ curve: Motion.spring }, (): void => {
       this.drawerProgress = 0;
     });
   }

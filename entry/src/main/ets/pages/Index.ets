@@ -60,7 +60,8 @@ struct Index {
     const narrow = (AppStorage.get<number>('bpWindowWidth') ?? 0) < Dim.siderPermanentBp;
     const progress = AppStorage.get<number>('drawerProgress') ?? 0;
     if (narrow && progress > 0.01) {
-      this.getUIContext().animateTo({ duration: Motion.animSlow, curve: Curve.Smooth }, (): void => {
+      // 弹簧曲线：时长由物理参数决定（可打断、继承速度），勿配 duration
+      this.getUIContext().animateTo({ curve: Motion.spring }, (): void => {
         AppStorage.setOrCreate<number>('drawerProgress', 0);
       });
       return true;

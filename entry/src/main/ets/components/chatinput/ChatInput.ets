@@ -68,6 +68,7 @@ export struct ChatInput {
         .width(12)
         .height(12)
         .fillColor($r('app.color.text_tertiary'))
+        .responseRegion({ x: -14, y: -14, width: 40, height: 40 })
         .onClick(() => {
           this.onRemoveFile(f);
         })
@@ -93,8 +94,14 @@ export struct ChatInput {
         .fontColor(on() ? $r('app.color.brand_activated') : $r('app.color.text_tertiary'))
     }
     .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-    .borderRadius(18)
+    .borderRadius(Dim.radiusL)
     .backgroundColor(on() ? $r('app.color.thinking_bg') : $r('app.color.component_normal'))
+    // 按压态（官方通用按压交互色），抬起回落开启/关闭底色
+    .stateStyles({
+      pressed: {
+        .backgroundColor($r('app.color.interactive_pressed'))
+      },
+    })
     .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.93 })
     .onClick(() => {
       onTap();
@@ -112,6 +119,8 @@ export struct ChatInput {
     }
     .width(29)
     .height(29)
+    // 视觉 29vp，热区外扩到 40×40（UX 2.1.3.3）
+    .responseRegion({ x: -5.5, y: -5.5, width: 40, height: 40 })
     .borderRadius(14.5)
     .border({ width: 1.5, color: $r('app.color.text_secondary') })
     .justifyContent(FlexAlign.Center)
@@ -132,6 +141,8 @@ export struct ChatInput {
     }
     .width(29)
     .height(29)
+    // 视觉 29vp，热区外扩到 40×40（UX 2.1.3.3）
+    .responseRegion({ x: -5.5, y: -5.5, width: 40, height: 40 })
     .borderRadius(14.5)
     .border({ width: 1.5, color: $r('app.color.text_secondary') })
     .justifyContent(FlexAlign.Center)
@@ -157,7 +168,12 @@ export struct ChatInput {
     .height(80)
     .justifyContent(FlexAlign.Center)
     .backgroundColor($r('app.color.component_normal'))
-    .borderRadius(14)
+    .borderRadius(Dim.radiusM)
+    .stateStyles({
+      pressed: {
+        .backgroundColor($r('app.color.interactive_pressed'))
+      },
+    })
     .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.96 })
     .onClick(() => {
       onTap();
@@ -182,8 +198,9 @@ export struct ChatInput {
       })
     }
     .width('100%')
+    // 面板入场用减速曲线（新元素入场场景）
     .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 24 }))
-      .animation({ duration: Motion.animFast, curve: Curve.Smooth }))
+      .animation({ duration: Motion.animBase, curve: Motion.curveIn }))
   }
 
   /** 发送圆钮（品牌蓝底白箭头） */
@@ -197,6 +214,7 @@ export struct ChatInput {
     }
     .width(29)
     .height(29)
+    .responseRegion({ x: -5.5, y: -5.5, width: 40, height: 40 })
     .borderRadius(14.5)
     .backgroundColor($r('app.color.brand'))
     .justifyContent(FlexAlign.Center)
@@ -217,6 +235,8 @@ export struct ChatInput {
     }
     .width(29)
     .height(29)
+    // 视觉 29vp，热区外扩到 40×40（UX 2.1.3.3）
+    .responseRegion({ x: -5.5, y: -5.5, width: 40, height: 40 })
     .borderRadius(14.5)
     .border({ width: 1.5, color: $r('app.color.text_secondary') })
     .justifyContent(FlexAlign.Center)
@@ -238,6 +258,7 @@ export struct ChatInput {
         .width(16)
         .height(16)
         .fillColor($r('app.color.text_tertiary'))
+        .responseRegion({ x: -12, y: -12, width: 40, height: 40 })
         .onClick(() => {
           this.onCancelEdit();
         })
@@ -414,6 +435,8 @@ export struct ChatInput {
               .strokeWidth(3)
               .valueColors([$r('app.color.brand')])
               .trackBackgroundColor($r('app.color.component_normal'))
+              // 22vp 小环：热区外扩到 40×40（UX 2.1.3.3）
+              .responseRegion({ x: -9, y: -9, width: 40, height: 40 })
               .onClick(() => {
                 this.showUsagePopup = !this.showUsagePopup;
               })
@@ -469,7 +492,7 @@ export struct ChatInput {
     if (next) {
       this.getUIContext().getFocusController().clearFocus();
     }
-    this.getUIContext().animateTo({ duration: Motion.animFast, curve: Curve.Smooth }, () => {
+    this.getUIContext().animateTo({ duration: Motion.animBase, curve: Motion.curveIn }, () => {
       this.attachPanelOpen = next;
     });
   }

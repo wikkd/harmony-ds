@@ -37,6 +37,12 @@ export struct Sider {
         .borderRadius(Dim.radiusM)
         .padding({ left: 12 })
         .backgroundColor($r('app.color.component_normal'))
+        // 按压态（官方通用按压交互色）
+        .stateStyles({
+          pressed: {
+            .backgroundColor($r('app.color.interactive_pressed'))
+          },
+        })
         .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.97 })
         .onClick(() => {
           this.store.newSession();
@@ -62,15 +68,15 @@ export struct Sider {
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                     .layoutWeight(1)
-                  // ⋯ 图标仅 18vp，直接绑菜单很难点中，外包 32vp 触控区
+                  // ⋯ 图标仅 18vp，直接绑菜单很难点中——外包 40×40 触控区（UX 2.1.3.3 硬性下限）
                   Row() {
                     Image($r('app.media.ic_public_more'))
                       .width(18)
                       .height(18)
                       .fillColor($r('app.color.text_tertiary'))
                   }
-                  .width(32)
-                  .height(32)
+                  .width(40)
+                  .height(40)
                   .justifyContent(FlexAlign.Center)
                   .alignItems(VerticalAlign.Center)
                   .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
@@ -81,6 +87,12 @@ export struct Sider {
                 .borderRadius(Dim.radiusM)
                 .padding({ left: 12, right: 8 })
                 .backgroundColor(r.session?.id === this.store.currentSessionId ? $r('app.color.thinking_bg') : Color.Transparent)
+                // 按压态（官方通用按压交互色），抬起回落选中/基础色
+                .stateStyles({
+                  pressed: {
+                    .backgroundColor($r('app.color.interactive_pressed'))
+                  },
+                })
                 .onClick(() => {
                   this.store.switchTo((r.session as Session).id);
                   this.onSessionSelected();
@@ -150,7 +162,7 @@ export struct Sider {
     }
     .padding({ left: 24, right: 24, top: 8, bottom: 24 })
     .width('100%')
-    .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+    .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
     .backgroundColor($r('app.color.blur_dialog'))
   }
 

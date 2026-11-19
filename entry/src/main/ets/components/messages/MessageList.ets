@@ -110,7 +110,7 @@ export struct MessageList {
             .width('100%')
           }
           .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 20 }))
-            .animation({ duration: Motion.animBase, curve: Curve.Smooth }))
+            .animation({ duration: Motion.animBase, curve: Motion.curveIn }))
         }, (m: Message) => m.id)
       }
       .width('100%')
@@ -263,6 +263,8 @@ export struct MessageList {
           .width(16)
           .height(16)
           .fillColor($r('app.color.text_tertiary'))
+          // 热区外扩到 40×40（UX 2.1.3.3）
+          .responseRegion({ x: -12, y: -12, width: 40, height: 40 })
           .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
           .onClick(() => {
             copyToClipboard(m.content).then(() => {
@@ -276,6 +278,7 @@ export struct MessageList {
           .width(16)
           .height(16)
           .fillColor($r('app.color.text_tertiary'))
+          .responseRegion({ x: -12, y: -12, width: 40, height: 40 })
           .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
           .onClick(() => {
             if (!this.isLocked(m)) {
@@ -309,6 +312,8 @@ export struct MessageList {
       Text('‹')
         .fontSize(Fonts.body2())
         .fontColor($r('app.color.brand_activated'))
+        // 版本切换箭头热区外扩到 40×40（UX 2.1.3.3）
+        .responseRegion({ x: -14, y: -14, width: 40, height: 40 })
         .onClick(() => {
           this.store.switchVersion(this.session.id, m, -1);
         })
@@ -318,6 +323,7 @@ export struct MessageList {
       Text('›')
         .fontSize(Fonts.body2())
         .fontColor($r('app.color.brand_activated'))
+        .responseRegion({ x: -14, y: -14, width: 40, height: 40 })
         .onClick(() => {
           this.store.switchVersion(this.session.id, m, 1);
         })
