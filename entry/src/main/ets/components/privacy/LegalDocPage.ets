@@ -2,23 +2,49 @@ import { Fonts } from '../../common/Fonts';
 import { I18n } from '../../common/I18n';
 import { Dim } from '../../common/DesignTokens';
 
-/** 隐私政策（上架合规：数据去向说明） */
-@Component
-export struct PrivacyPolicyPage {
+/** 法务文档章节：i18n 词条键对 */
+export class LegalSection {
+  titleKey: string;
+  bodyKey: string;
+
+  constructor(titleKey: string, bodyKey: string) {
+    this.titleKey = titleKey;
+    this.bodyKey = bodyKey;
+  }
+}
+
+/** 隐私政策 9 节词条 */
+export function buildPrivacySections(): LegalSection[] {
+  const out: LegalSection[] = [];
+  for (let i = 1; i <= 9; i++) {
+    out.push(new LegalSection(`privacyPolicySection${i}Title`, `privacyPolicySection${i}Body`));
+  }
+  return out;
+}
+
+/** 用户协议 9 节词条 */
+export function buildAgreementSections(): LegalSection[] {
+  const out: LegalSection[] = [];
+  for (let i = 1; i <= 9; i++) {
+    out.push(new LegalSection(`agreementSection${i}Title`, `agreementSection${i}Body`));
+  }
+  return out;
+}
+
+/** 法务文档页（隐私政策/用户协议共用骨架：滚动章节列表） */
+@ComponentV2
+export struct LegalDocPage {
+  @Param titleKey: string = '';
+  @Param sections: LegalSection[] = [];
+
   build() {
     NavDestination() {
       Column() {
         Scroll() {
           Column({ space: 16 }) {
-            this.section(I18n.translate('privacyPolicySection1Title'), I18n.translate('privacyPolicySection1Body'));
-            this.section(I18n.translate('privacyPolicySection2Title'), I18n.translate('privacyPolicySection2Body'));
-            this.section(I18n.translate('privacyPolicySection3Title'), I18n.translate('privacyPolicySection3Body'));
-            this.section(I18n.translate('privacyPolicySection4Title'), I18n.translate('privacyPolicySection4Body'));
-            this.section(I18n.translate('privacyPolicySection5Title'), I18n.translate('privacyPolicySection5Body'));
-            this.section(I18n.translate('privacyPolicySection6Title'), I18n.translate('privacyPolicySection6Body'));
-            this.section(I18n.translate('privacyPolicySection7Title'), I18n.translate('privacyPolicySection7Body'));
-            this.section(I18n.translate('privacyPolicySection8Title'), I18n.translate('privacyPolicySection8Body'));
-            this.section(I18n.translate('privacyPolicySection9Title'), I18n.translate('privacyPolicySection9Body'));
+            ForEach(this.sections, (s: LegalSection, idx: number) => {
+              this.section(I18n.translate(s.titleKey), I18n.translate(s.bodyKey), idx)
+            }, (s: LegalSection) => s.titleKey)
           }
           .alignItems(HorizontalAlign.Start)
           .padding({ left: Dim.pagePadding, right: Dim.pagePadding, top: Dim.pagePadding, bottom: 44 })
@@ -33,14 +59,14 @@ export struct PrivacyPolicyPage {
       .width('100%')
       .height('100%')
     }
-    .title(I18n.translate('privacyPolicyTitle'))
+    .title(I18n.translate(this.titleKey))
     .backgroundColor($r('app.color.app_bg'))
     // 底色延伸进手势条避让区，页底不露分界线
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
   }
 
   @Builder
-  section(title: string, body: string) {
+  section(title: string, body: string, idx: number) {
     Column({ space: 8 }) {
       Text(title)
         .fontSize(Fonts.headline9())

@@ -12,8 +12,7 @@ import { ChatStore } from '../service/chat/ChatStore';
 import { ReplyEngine } from '../service/chat/ReplyEngine';
 import { Dim } from '../common/DesignTokens';
 import { DrawerButton, StatusCapsule } from '../components/titlebar/TopControls';
-import { PrivacyPolicyPage } from '../components/privacy/PrivacyPolicyPage';
-import { UserAgreementPage } from '../components/privacy/UserAgreementPage';
+import { LegalDocPage, LegalSection, buildPrivacySections, buildAgreementSections } from '../components/privacy/LegalDocPage';
 import { MessageList } from '../components/messages/MessageList';
 import { ChatInput } from '../components/chatinput/ChatInput';
 import { Sider } from '../components/sider/Sider';
@@ -106,9 +105,9 @@ struct Index {
   @Builder
   pageMap(name: string) {
     if (name === 'privacy') {
-      PrivacyPolicyPage()
+      LegalDocPage({ titleKey: 'privacyPolicyTitle', sections: buildPrivacySections() })
     } else if (name === 'agreement') {
-      UserAgreementPage()
+      LegalDocPage({ titleKey: 'userAgreementTitle', sections: buildAgreementSections() })
     } else if (name === 'settings') {
       SettingsPage({ pathStack: this.pathStack })
     } else if (name === 'usage') {
