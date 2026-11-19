@@ -1,5 +1,5 @@
 import { ApiClient, StreamAborter } from '../api/ApiClient';
-import { ApiError } from '../api/ApiError';
+import { ApiError } from '../../model/ApiError';
 import { StreamEvent } from '../../model/ApiTypes';
 import {
   AssistantMessage,

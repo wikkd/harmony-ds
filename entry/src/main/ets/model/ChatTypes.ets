@@ -6,7 +6,7 @@ import {
   StopReason,
   TextCitation,
 } from './ApiTypes';
-import { ApiErrorKind } from '../service/api/ApiError';
+import { ApiErrorKind } from './ApiError';
 
 /**
  * 本地会话数据模型，对齐原项目 src/services/chat/types.ts。

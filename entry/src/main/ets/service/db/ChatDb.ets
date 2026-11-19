@@ -14,7 +14,7 @@ import {
   UserMessage,
 } from '../../model/ChatTypes';
 import { MessageUsage, StopReason, TextCitation } from '../../model/ApiTypes';
-import { ApiErrorKind } from '../api/ApiError';
+import { ApiErrorKind } from '../../model/ApiError';
 import { Logger } from '../../common/Logger';
 
 const TAG: string = 'ChatDb';

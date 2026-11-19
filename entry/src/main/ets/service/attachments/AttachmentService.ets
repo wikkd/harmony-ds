@@ -6,7 +6,7 @@ import { http } from '@kit.NetworkKit';
 import { util } from '@kit.ArkTS';
 import { Context } from '@kit.AbilityKit';
 import { FileAttachment } from '../../model/ChatTypes';
-import { ApiError, ApiErrorKind } from '../api/ApiError';
+import { ApiError, ApiErrorKind } from '../../model/ApiError';
 import { AppContextHolder } from '../../common/AppContextHolder';
 import { Logger } from '../../common/Logger';
 import { Id } from '../../common/Format';

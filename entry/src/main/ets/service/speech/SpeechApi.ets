@@ -1,7 +1,7 @@
 import { http } from '@kit.NetworkKit';
 import fs from '@ohos.file.fs';
 import { util } from '@kit.ArkTS';
-import { ApiError } from '../api/ApiError';
+import { ApiError } from '../../model/ApiError';
 import { Logger } from '../../common/Logger';
 import { SettingsStore } from '../../prefs/SettingsStore';
 

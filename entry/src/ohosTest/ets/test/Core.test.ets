@@ -2,7 +2,7 @@ import { describe, it, expect } from '@ohos/hypium';
 import { ServerSentEventDecoder } from '../../../main/ets/service/api/SseDecoder';
 import { MarkdownParser, BlockNode } from '../../../main/ets/components/markdown/MarkdownParser';
 import { MathConverter } from '../../../main/ets/components/markdown/MathView';
-import { ApiError } from '../../../main/ets/service/api/ApiError';
+import { ApiError } from '../../../main/ets/model/ApiError';
 import { PeakPeriod } from '../../../main/ets/common/PeakPeriod';
 import { ModelInfo } from '../../../main/ets/model/ModelInfo';
 import { CharacterCard } from '../../../main/ets/common/CharacterCard';

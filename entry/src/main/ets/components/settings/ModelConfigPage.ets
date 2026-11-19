@@ -4,7 +4,7 @@ import { Dim } from '../../common/DesignTokens';
 import { SettingsStore } from '../../prefs/SettingsStore';
 import { KeyVault } from '../../prefs/KeyVault';
 import { ApiClient } from '../../service/api/ApiClient';
-import { ApiError } from '../../service/api/ApiError';
+import { ApiError } from '../../model/ApiError';
 import { AppContextHolder } from '../../common/AppContextHolder';
 import { Logger } from '../../common/Logger';
 import { promptAction } from '@kit.ArkUI';

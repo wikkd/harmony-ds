@@ -25,7 +25,7 @@ import { SpeechApi } from '../../service/speech/SpeechApi';
 import { TtsPlayer } from '../../service/speech/TtsPlayer';
 import { KeyVault } from '../../prefs/KeyVault';
 import { SettingsStore } from '../../prefs/SettingsStore';
-import { ApiError } from '../../service/api/ApiError';
+import { ApiError } from '../../model/ApiError';
 
 /** 全局唯一 TTS 播放器（新朗读会停止旧的） */
 class TtsActive {

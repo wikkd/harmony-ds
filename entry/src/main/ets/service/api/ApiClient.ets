@@ -1,7 +1,7 @@
 import { http } from '@kit.NetworkKit';
 import { util } from '@kit.ArkTS';
 import { ServerSentEvent, ServerSentEventDecoder } from './SseDecoder';
-import { ApiError } from './ApiError';
+import { ApiError } from '../../model/ApiError';
 import { parseMessageEvent } from './EventParser';
 import { StreamEvent } from '../../model/ApiTypes';
 import { Logger } from '../../common/Logger';

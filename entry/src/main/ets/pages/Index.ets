@@ -6,7 +6,7 @@ import { SettingsStore } from '../prefs/SettingsStore';
 import { ThemeHelper } from '../common/ThemeHelper';
 import { AppContextHolder } from '../common/AppContextHolder';
 import { ApiClient } from '../service/api/ApiClient';
-import { ApiError } from '../service/api/ApiError';
+import { ApiError } from '../model/ApiError';
 import { KeyVault } from '../prefs/KeyVault';
 import { ChatStore } from '../service/chat/ChatStore';
 import { ReplyEngine } from '../service/chat/ReplyEngine';
