@@ -11,4 +11,4 @@
 **/.test
 /.appanalyzer
 /.design
-/scripts/*.log
+/scripts/*.log/.zcode

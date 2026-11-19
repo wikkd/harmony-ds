@@ -6,6 +6,7 @@ import { ApiError } from '../../../main/ets/model/ApiError';
 import { PeakPeriod } from '../../../main/ets/common/PeakPeriod';
 import { ModelInfo } from '../../../main/ets/model/ModelInfo';
 import { CharacterCard } from '../../../main/ets/common/CharacterCard';
+import { zh, en } from '../../../main/ets/common/I18n';
 
 export default function coreTests(): void {
   describe('sseDecoder', () => {
@@ -251,6 +252,31 @@ export default function coreTests(): void {
     });
     it('invalid json yields empty', 0, () => {
       expect(CharacterCard.parse('{ broken json') === '').assertTrue();
+    });
+  });
+
+  describe('i18n', () => {
+    it('zh and en key sets are identical', 0, () => {
+      const zhKeys: string[] = Object.keys(zh).sort();
+      const enKeys: string[] = Object.keys(en).sort();
+      expect(zhKeys.length === enKeys.length).assertTrue();
+      for (let i = 0; i < zhKeys.length; i++) {
+        expect(zhKeys[i] === enKeys[i]).assertTrue();
+      }
+    });
+    it('no empty values', 0, () => {
+      let empty = 0;
+      Object.keys(zh).forEach((k: string): void => {
+        if (zh[k] === '') {
+          empty++;
+        }
+      });
+      Object.keys(en).forEach((k: string): void => {
+        if (en[k] === '') {
+          empty++;
+        }
+      });
+      expect(empty === 0).assertTrue();
     });
   });
 }
