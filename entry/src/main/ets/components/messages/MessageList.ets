@@ -196,12 +196,12 @@ export struct MessageList {
         .width(14)
         .height(14)
         .fillColor($r('app.color.text_primary_contrary'))
-      Text(f.name)
+      // 7.0.0.111 实机回归：列表内数字 constraintSize(maxWidth) 会毒化子树，改代码级截断
+      Text(f.name.length > 16 ? `${f.name.slice(0, 16)}…` : f.name)
         .fontSize(Fonts.caption())
         .fontColor($r('app.color.text_primary_contrary'))
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .constraintSize({ maxWidth: 140 })
     }
     .padding({ left: 8, right: 8, top: 4, bottom: 4 })
     .backgroundColor($r('app.color.brand_pressed'))

@@ -24,6 +24,13 @@ export struct DataManagePage {
   @Param pathStack: NavPathStack = new NavPathStack();
   store: ChatStore = ChatStore.get();
 
+  /**
+   * 宽屏内容收窄：不能用 constraintSize(maxWidth)——7.0.0.111 实机回归，
+   * 它出现在 NavDestination 子树会让后代节点挂载错乱（图标/箭头整体缺席）。
+   * 改为 Scroll 自测宽后对内容列动态加水平 padding（手机不受影响）。
+   */
+  @Local contentPad: number = Dim.pagePadding;
+
   build() {
     NavDestination() {
       Stack() {
@@ -80,10 +87,14 @@ export struct DataManagePage {
               },
             })
           }
-          .padding({ left: Dim.pagePadding, right: Dim.pagePadding, top: 8, bottom: 44 })
-          .constraintSize({ maxWidth: Dim.contentMaxWidth })
+          .padding({ left: this.contentPad, right: this.contentPad, top: 8, bottom: 44 })
         }
         .layoutWeight(1)
+        .onAreaChange((_o: Area, nv: Area) => {
+          const w = Number(nv.width);
+          const inner = Dim.contentMaxWidth - Dim.pagePadding * 2;
+          this.contentPad = Math.max(Dim.pagePadding, (w - inner) / 2);
+        })
         .scrollBar(BarState.Off)
         .align(Alignment.Top)
         // 内容滚动手势条下方：行滚到底部只被手势条浮层遮住，不在安全区分界线被裁切

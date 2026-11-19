@@ -71,3 +71,12 @@ chat-demo → 鸿蒙原生移植（M1–M12）过程中沉淀的实操经验，�
 - **注释里别写 `att_*/cam_*` 这类含 `*/` 的通配符**：块注释提前终止，后续代码被当代码解析，报错点远离真因（全是级联 any/undefined 错）。
 - 重构批量替换用 sed 时按形态分三类核对（`{ X,` 开键、`, X }` 中键、独立行），替换后 `grep 残留` + 全量构建兜底；Motion token 替换 40 处即靠三段式 grep 收敛。
 - zh/en 词条 parity 与空值已入单测（Core.test i18n 套件）；词条增删后跑 `node scripts/i18n_audit.mjs` 可再审计死词条。
+
+## 2026-11-19 HarmonyOS 7.0.0.111 OTA 渲染回归（平板 MRDI-W00）
+
+- **现象**：平板 OTA 到 7.0.0.111 后，设置页卡片只剩背景、行内图标/开关/值全部消失；同一份代码在 6.x 上完全正常。dumpLayout 显示叶子节点**根本没挂进树**（不是画不出来）。
+- **根因定位过程**：先怀疑重构的 SettingRow 子组件、null-union @Param、if 条件块、bindSheet——逐一探针排除（六个行结构变体页全部正常渲染）；b2765f3 旧代码（平板验证过的版本）同样复现 → 排除代码、锁定环境；`param get const.product.software.version` 显示系统已是 7.0.0.111。
+- **真正根因**：`constraintSize({ maxWidth: <数字> })` 出现在 **Scroll 子树内**（Scroll 自身或其内容列）时，7.0 的 ArkUI 会静默丢弃该子树后代节点挂载（同 Row 内只活个别 Text，且"幸存者"随代码形状漂移，无规律）。**NavDestination 与否无关**（PersonaPage 无 Scroll 上的 constraintSize 正常；主页 ChatView 的 welcome/dock constraintSize 不在 Scroll 内也正常）。**百分比 maxWidth（'82%'/'46%'）与 maxHeight/minHeight 不受影响**。
+- **修复模式**：Scroll 所在页面一律不用 constraintSize 做宽屏收窄，改为 **Scroll 链上 onAreaChange 自测宽 + 内容列动态水平 padding**（`@Local contentPad = max(pagePadding, (w - cap) / 2)`），手机（窄屏）取 pagePadding 视觉不变。已应用于 SettingsPage/DataManagePage/ModelConfigPage/UsagePage/LegalDocPage。
+- **连带处理**：消息列表内文件条 Text 的 `constraintSize({maxWidth:140})`（数字、在 List 内）改为**代码级截断**（`name.length > 16 ? slice+'…' : name`），避免踩同一回归。
+- **教训**：升级系统后回归要先做「同码对照 + 环境指纹」（系统版本/工具链版本），再怀疑自己的改动；本次重构提交完全无辜，险些被回退。真机诊断三板斧：`uitest dumpLayout`（树）、`snapshot_display`（仅参考，平板有黑帧/丢层伪影）、hilog debug 级（Ace 警告仅症状）。
