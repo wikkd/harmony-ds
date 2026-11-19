@@ -176,6 +176,8 @@ export struct DataManagePage {
       const context = AppContextHolder.get();
       const tmp = `${context.cacheDir}/import_${Date.now()}.zip`;
       fs.copyFileSync(uris[0], tmp);
+      // 大包（数百会话）解析需数十秒：先给进行中提示（时长超出常规 toast 分档，防中途消失）
+      this.getUIContext().getPromptAction().showToast({ message: I18n.translate('historyImporting'), duration: 10000 });
       const count = await HistoryArchive.importZip(tmp);
       await this.store.reloadAfterImport();
       try {

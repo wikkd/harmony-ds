@@ -12,6 +12,7 @@ export const ZH_BACKUP: Record<string, string> = {
   'historyImportDescription': '导入历史对话会覆盖全部本地对话和附件，支持 DeepSeek 导出的 ZIP 文件。',
   'historyImportedOne': '已导入 1 个对话',
   'historyImported': '已导入 {count} 个对话',
+  'historyImporting': '正在导入历史对话，请稍候…',
   'historyImportFailed': 
   '文件导入失败，可能是文件格式错误或使用了旧版的对话导出 ZIP 文件，请前往 DeepSeek 重新导出历史对话文件后再次导入。',
   'historyExportFailed': '导出失败：{message}',
@@ -43,6 +44,7 @@ export const EN_BACKUP: Record<string, string> = {
   'historyImportDescription': 'Imports all local chats and attachments from a ZIP file exported by DeepSeek.',
   'historyImportedOne': 'Imported 1 chat',
   'historyImported': 'Imported {count} chats',
+  'historyImporting': 'Importing chats, please wait…',
   'historyImportFailed': 'Import failed. The file may be malformed or an old export. Please re-export from DeepSeek and retry.',
   'historyExportFailed': 'Export failed: {message}',
   'historyExported': 'Chats exported',

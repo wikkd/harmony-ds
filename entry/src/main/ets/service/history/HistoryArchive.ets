@@ -15,7 +15,7 @@ import {
   ThinkingPart,
   UserMessage,
 } from '../../model/ChatTypes';
-import { MessageUsage, ProtocolFetchResultBlock, ProtocolSearchResultBlock, SearchResult, StopReason } from '../../model/ApiTypes';
+import { MessageUsage, ProtocolFetchResultBlock, ProtocolSearchResultBlock, StopReason, TextCitation } from '../../model/ApiTypes';
 import { Id } from '../../common/Format';
 
 const TAG: string = 'HistoryArchive';
@@ -36,7 +36,8 @@ export class ArchiveError extends Error {
 
 /**
  * 历史导入导出（ZIP v3，对齐官方 chat_sessions/{id}.json + manifest + index 结构）。
- * 导入支持 DeepSeek 官方导出文件；导出可供 web 版导入（图片原件包含，API Key 排除）。
+ * 导入支持 DeepSeek 官方导出文件：新版来源协议（TOOL_SEARCH/TOOL_OPEN）还原为文本块引用，
+ * 与直播 citations_delta 落点一致；导出可供 web 版导入（图片原件包含，API Key 排除）。
  */
 export class HistoryArchive {
   // ---------- 导入 ----------
@@ -74,6 +75,7 @@ export class HistoryArchive {
       // 逐会话解析（先全部进内存，再一次性替换数据库）
       const sessionsDir = `${destDir}/chat_sessions`;
       const imported: Session[] = [];
+      let processed = 0;
       for (const item of index) {
         const entry = item as Record<string, Object>;
         const sid = entry['id'];
@@ -87,6 +89,10 @@ export class HistoryArchive {
         const sessionFile = JSON.parse(fs.readTextSync(jsonPath)) as Record<string, Object>;
         const session = HistoryArchive.sessionFromArchive(sid, sessionFile, destDir);
         imported.push(session);
+        // 大包（数百会话）逐个让出主线程，避免整段同步解析阻塞 UI
+        if (++processed % 64 === 0) {
+          await new Promise<void>((resolve: () => void) => setTimeout(resolve, 0));
+        }
       }
       // 单事务替换：中途失败回滚，原会话与附件保持可用
       await ChatDb.replaceAllSessions(imported);
@@ -221,7 +227,9 @@ export class HistoryArchive {
     let root: Message | null = null;
     for (const m of session.messages) {
       if (m.parentId === null) {
-        root = m;
+        if (root === null) {
+          root = m; // 多 root 异常包体：默认取最早的主链
+        }
         continue;
       }
       const list = children.get(m.parentId) ?? [];
@@ -249,6 +257,10 @@ export class HistoryArchive {
         }
         parent.selectedChildId = cur.id;
         cur = parent;
+      }
+      // 根取当前链顶端：current_message_id 所在分支才是用户正在看的会话
+      if (cur !== null && cur.parentId === null) {
+        session.rootMessageId = cur.id;
       }
     }
   }
@@ -321,9 +333,13 @@ export class HistoryArchive {
       usage.outputTokens = usageTotal;
       m.usage = usage;
     }
+    // 来源引用：TOOL_SEARCH/TOOL_OPEN（官方新版协议）→ 文本块 citations
+    const citations: TextCitation[] = [];
+    const seenUrls: Set<string> = new Set();
     const fragments = rec['fragments'];
     if (fragments instanceof Array) {
       for (const f of fragments as Array<Object>) {
+        HistoryArchive.collectCitations(f, citations, seenUrls);
         const block = HistoryArchive.fragmentToBlock(f, inserted);
         if (block !== null) {
           m.blocks.push(block);
@@ -344,7 +360,8 @@ export class HistoryArchive {
         }
       }
       m.blocks = kept;
-    } else if (status === 'INCOMPLETE' || status === 'WIP') {
+    } else if (status === 'INCOMPLETE' || status === 'WIP' || status === 'TIMEOUT' || status === 'CONTEXT_LENGTH_EXCEEDED') {
+      // 超时/上下文截断：官方表现为模板提示的未完成回复，按手动停止处理而非错误
       m.status = 'stopped';
     } else {
       m.status = 'error';
@@ -353,6 +370,7 @@ export class HistoryArchive {
       re.message = '';
       m.error = re;
     }
+    HistoryArchive.attachCitations(m, citations);
     return m;
   }
 
@@ -384,27 +402,6 @@ export class HistoryArchive {
       }
       return rb;
     }
-    if (type === 'TOOL_SEARCH') {
-      rb.type = 'tool';
-      rb.toolPart = new ServerToolPart();
-      const block = new ProtocolSearchResultBlock();
-      block.toolUseId = Id.next();
-      block.kind = 'search';
-      const results = fr['results'];
-      if (results instanceof Array) {
-        for (const r of results as Array<Object>) {
-          const rr = r as Record<string, Object>;
-          const res = new SearchResult();
-          res.url = typeof rr['url'] === 'string' ? rr['url'] as string : '';
-          res.title = typeof rr['title'] === 'string' ? rr['title'] as string : '';
-          res.snippet = typeof rr['snippet'] === 'string' ? rr['snippet'] as string : '';
-          res.siteName = typeof rr['site_name'] === 'string' ? rr['site_name'] as string : null;
-          block.results.push(res);
-        }
-      }
-      rb.toolPart.searchResult = block;
-      return rb;
-    }
     if (type === 'READ_LINK') {
       rb.type = 'tool';
       rb.toolPart = new ServerToolPart();
@@ -421,8 +418,59 @@ export class HistoryArchive {
       rb.toolPart.fetchResult = block;
       return rb;
     }
-    // TIP/CONTENT_RISK/PARTIAL_FILE_READ/TOOL_IMAGE_SEARCH/FILE 等无展示映射：丢弃
+    // TOOL_OPEN 已在 collectCitations 转引用；TIP/CONTENT_RISK/PARTIAL_FILE_READ/TOOL_IMAGE_SEARCH/FILE 等无展示映射：丢弃
     return null;
+  }
+
+  /** TOOL_SEARCH.results / TOOL_OPEN（官方新版来源协议）→ 引用：同 URL 去重，无 URL 的占位条目丢弃 */
+  private static collectCitations(f: Object, out: TextCitation[], seen: Set<string>): void {
+    const fr = f as Record<string, Object>;
+    const type = fr['type'];
+    if (type !== 'TOOL_SEARCH' && type !== 'TOOL_OPEN') {
+      return;
+    }
+    let entries: Array<Object> = [];
+    if (type === 'TOOL_OPEN') {
+      entries = [f];
+    } else if (fr['results'] instanceof Array) {
+      entries = fr['results'] as Array<Object>;
+    }
+    for (const e of entries) {
+      const er = e as Record<string, Object>;
+      const url = typeof er['url'] === 'string' ? er['url'] as string : '';
+      if (url === '' || seen.has(url)) {
+        continue;
+      }
+      seen.add(url);
+      const c = new TextCitation();
+      c.url = url;
+      c.title = typeof er['title'] === 'string' && (er['title'] as string).length > 0 ? er['title'] as string : null;
+      out.push(c);
+    }
+  }
+
+  /** 引用挂到最末正文块（与直播 citations_delta 落点一致）；仅模板文本时挂模板块；无文本块丢弃 */
+  private static attachCitations(m: AssistantMessage, citations: TextCitation[]): void {
+    if (citations.length === 0) {
+      return;
+    }
+    for (let i = m.blocks.length - 1; i >= 0; i--) {
+      const b = m.blocks[i];
+      if (b.type === 'text' && !b.textPart.isTemplate) {
+        for (const c of citations) {
+          b.textPart.citations.push(c);
+        }
+        return;
+      }
+    }
+    for (const b of m.blocks) {
+      if (b.type === 'text') {
+        for (const c of citations) {
+          b.textPart.citations.push(c);
+        }
+        return;
+      }
+    }
   }
 
   // ---------- 本地 → 归档 ----------
@@ -519,6 +567,7 @@ export class HistoryArchive {
 
   private static assistantToArchiveFragments(am: AssistantMessage): Array<Object> {
     const fragments: Array<Object> = [];
+    let stageId = 0;
     for (const b of am.blocks) {
       if (b.type === 'thinking') {
         const secs = b.thinkingPart.startedAt > 0 && b.thinkingPart.endedAt > b.thinkingPart.startedAt
@@ -528,6 +577,17 @@ export class HistoryArchive {
         };
         fragments.push(fr);
       } else if (b.type === 'text') {
+        // 引用来源 → TOOL_OPEN 组（官方新版来源协议，stage_id 按组自增，供官方导入还原来源卡）
+        if (b.textPart.citations.length > 0) {
+          stageId++;
+          for (const c of b.textPart.citations) {
+            const fo: J = {
+              'type': 'TOOL_OPEN', 'status': 'FINISHED', 'url': c.url, 'title': c.title,
+              'snippet': null, 'site_name': null, 'published_at': null, 'site_icon': null, 'stage_id': stageId,
+            };
+            fragments.push(fo);
+          }
+        }
         const fr: Record<string, Object> = b.textPart.isTemplate
           ? { 'type': 'TEMPLATE_RESPONSE', 'content': b.textPart.text }
           : { 'type': 'RESPONSE', 'content': b.textPart.text };
