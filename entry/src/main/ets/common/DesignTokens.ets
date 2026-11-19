@@ -5,6 +5,8 @@
 export class Dim {
   /** 列表行高（官方规范 48vp） */
   static readonly listRowHeight: number = 48;
+  /** 设置页行高（56vp，含 PageHeader） */
+  static readonly rowHeight: number = 56;
   /** 卡片圆角（官方规范 12vp / 大卡 24vp） */
   static readonly radiusS: number = 8;
   static readonly radiusM: number = 12;

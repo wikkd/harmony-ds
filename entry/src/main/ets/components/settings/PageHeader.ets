@@ -1,3 +1,5 @@
+import { Dim } from '../../common/DesignTokens';
+
 /** 二级页面通用页头：灰色圆形返回钮 + 居中标题（仿官方设置子页） */
 @ComponentV2
 export struct PageHeader {
@@ -33,7 +35,7 @@ export struct PageHeader {
         .height(40)
     }
     .width('100%')
-    .height(56)
+    .height(Dim.rowHeight)
     .padding({ left: 12, right: 12 })
     .alignItems(VerticalAlign.Center)
   }

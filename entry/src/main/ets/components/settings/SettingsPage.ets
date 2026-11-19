@@ -9,6 +9,7 @@ import { LiveViewService } from '../../service/notify/LiveViewService';
 import { UserLocation, ThemePreference, ThinkingEffort } from '../../model/SettingsTypes';
 import { promptAction } from '@kit.ArkUI';
 import { PageHeader } from './PageHeader';
+import { SettingRow } from './SettingRow';
 
 /** 省份/地区（位置信息用于联网搜索本地化） */
 const PROVINCES: string[] = [
@@ -68,10 +69,16 @@ export struct SettingsPage {
               // ---------- 模型与服务 ----------
               this.sectionHeader('modelAndService')
               Column() {
-                this.optionRow('modelAndService', $r('app.media.ic_public_settings'),
-                  (): string => this.settings.model, (): void => {
+                SettingRow({
+                  label: I18n.translate('modelAndService'),
+                  icon: $r('app.media.ic_public_settings'),
+                  value: this.settings.model,
+                  showArrow: true,
+                  tappable: true,
+                  onRowTap: (): void => {
                     this.pathStack.pushPathByName('model', null);
-                  })
+                  },
+                })
               }
               .backgroundColor($r('app.color.card_bg'))
               .borderRadius(Dim.radiusL)
@@ -81,23 +88,33 @@ export struct SettingsPage {
               // ---------- 外观 ----------
               this.sectionHeader('settingsGroupAppearance')
               Column() {
-                this.optionRow('avatarMenuSettingsDialogThemeItemLabel', $r('app.media.ic_public_brightness'),
-                  (): string => this.selectedLabel(THEME_KEYS, (): number => this.themeIdx()),
-                  (): void => {
+                SettingRow({
+                  label: I18n.translate('avatarMenuSettingsDialogThemeItemLabel'),
+                  icon: $r('app.media.ic_public_brightness'),
+                  value: this.selectedLabel(THEME_KEYS, (): number => this.themeIdx()),
+                  showArrow: true,
+                  tappable: true,
+                  onRowTap: (): void => {
                     this.openRadio('', THEME_KEYS, (): number => this.themeIdx(), (idx: number): void => {
                       const prefs: ThemePreference[] = ['system', 'light', 'dark'];
                       this.settings.setThemePreference(prefs[idx]);
                       this.applyTheme();
                     })
-                  })
-                this.optionRow('fontSizeLabel', $r('app.media.ic_public_text'),
-                  (): string => this.selectedLabel(FONT_SCALE_KEYS, (): number => this.scaleIdx()),
-                  (): void => {
+                  },
+                })
+                SettingRow({
+                  label: I18n.translate('fontSizeLabel'),
+                  icon: $r('app.media.ic_public_text'),
+                  value: this.selectedLabel(FONT_SCALE_KEYS, (): number => this.scaleIdx()),
+                  showArrow: true,
+                  tappable: true,
+                  onRowTap: (): void => {
                     this.openRadio('fontSizeLabel', FONT_SCALE_KEYS, (): number => this.scaleIdx(),
                       (idx: number): void => {
                         this.settings.setFontScale(FONT_SCALES[idx]);
                       })
-                  })
+                  },
+                })
               }
               .backgroundColor($r('app.color.card_bg'))
               .borderRadius(Dim.radiusL)
@@ -107,31 +124,49 @@ export struct SettingsPage {
               // ---------- 对话 ----------
               this.sectionHeader('settingsGroupChat')
               Column() {
-                this.toggleRow('thinkingSwitch', $r('app.media.ic_public_favor'),
-                  (): boolean => this.settings.thinking, (on: boolean): void => {
+                SettingRow({
+                  label: I18n.translate('thinkingSwitch'),
+                  icon: $r('app.media.ic_public_favor'),
+                  toggleOn: this.settings.thinking,
+                  onToggle: (on: boolean): void => {
                     this.settings.setThinking(on);
-                  })
+                  },
+                })
                 Column() {
-                  this.optionRow('thinkingEffortLabel', $r('app.media.ic_public_stopwatch'),
-                    (): string => this.selectedLabel(EFFORT_KEYS, (): number => this.effortIdx()),
-                    (): void => {
+                  SettingRow({
+                    label: I18n.translate('thinkingEffortLabel'),
+                    icon: $r('app.media.ic_public_stopwatch'),
+                    value: this.selectedLabel(EFFORT_KEYS, (): number => this.effortIdx()),
+                    showArrow: true,
+                    tappable: true,
+                    onRowTap: (): void => {
                       this.openRadio('thinkingEffortLabel', EFFORT_KEYS, (): number => this.effortIdx(),
                         (idx: number): void => {
                           this.settings.setThinkingEffort(EFFORTS[idx]);
                         })
-                    })
+                    },
+                  })
                 }
                 .width('100%')
                 .opacity(this.settings.thinking ? 1 : 0.4)
-                this.toggleRow('search', $r('app.media.ic_public_search'),
-                  (): boolean => this.settings.search, (on: boolean): void => {
+                SettingRow({
+                  label: I18n.translate('search'),
+                  icon: $r('app.media.ic_public_search'),
+                  toggleOn: this.settings.search,
+                  onToggle: (on: boolean): void => {
                     this.settings.setSearch(on);
-                  })
-                this.optionRow('personalization', $r('app.media.ic_public_emoji'),
-                  (): string => this.settings.personalization === '' ? '' : I18n.translate('personalizationEnabled'),
-                  (): void => {
+                  },
+                })
+                SettingRow({
+                  label: I18n.translate('personalization'),
+                  icon: $r('app.media.ic_public_emoji'),
+                  value: this.settings.personalization === '' ? '' : I18n.translate('personalizationEnabled'),
+                  showArrow: true,
+                  tappable: true,
+                  onRowTap: (): void => {
                     this.pathStack.pushPathByName('persona', null);
-                  })
+                  },
+                })
               }
               .backgroundColor($r('app.color.card_bg'))
               .borderRadius(Dim.radiusL)
@@ -141,14 +176,24 @@ export struct SettingsPage {
               // ---------- 语音 ----------
               this.sectionHeader('settingsGroupVoice')
               Column() {
-                this.toggleRow('settingsTtsEnable', $r('app.media.ic_public_ring'),
-                  (): boolean => this.settings.ttsEnabled, (on: boolean): void => {
+                SettingRow({
+                  label: I18n.translate('settingsTtsEnable'),
+                  icon: $r('app.media.ic_public_ring'),
+                  toggleOn: this.settings.ttsEnabled,
+                  onToggle: (on: boolean): void => {
                     this.settings.setTtsEnabled(on);
-                  })
-                this.optionRow('settingsTtsVoice', $r('app.media.ic_public_sound'),
-                  (): string => this.voiceLabel(), (): void => {
+                  },
+                })
+                SettingRow({
+                  label: I18n.translate('settingsTtsVoice'),
+                  icon: $r('app.media.ic_public_sound'),
+                  value: this.voiceLabel(),
+                  showArrow: true,
+                  tappable: true,
+                  onRowTap: (): void => {
                     this.openVoiceSheet();
-                  })
+                  },
+                })
               }
               .backgroundColor($r('app.color.card_bg'))
               .borderRadius(Dim.radiusL)
@@ -158,21 +203,26 @@ export struct SettingsPage {
               // ---------- 语言与地区 ----------
               this.sectionHeader('settingsGroupLocale')
               Column() {
-                this.optionRow('settingsLocalePreference', $r('app.media.ic_public_translate'),
-                  (): string => this.selectedLabel(LOCALE_KEYS, (): number => this.localeIdx()),
-                  (): void => {
+                SettingRow({
+                  label: I18n.translate('settingsLocalePreference'),
+                  icon: $r('app.media.ic_public_translate'),
+                  value: this.selectedLabel(LOCALE_KEYS, (): number => this.localeIdx()),
+                  showArrow: true,
+                  tappable: true,
+                  onRowTap: (): void => {
                     this.openRadio('settingsLocalePreference', LOCALE_KEYS, (): number => this.localeIdx(),
                       (idx: number): void => {
                         this.settings.setLocale(idx === 0 ? 'zh-CN' : 'en-US');
                       }, $r('app.media.ic_public_translate'))
-                  })
-                this.optionRow('settingsLocation', $r('app.media.ic_public_gps'),
-                  (): string => {
-                    const loc = this.settings.location;
-                    return loc === null || loc.province === null
-                      ? I18n.translate('settingsLocationNone') : loc.province;
                   },
-                  (): void => {
+                })
+                SettingRow({
+                  label: I18n.translate('settingsLocation'),
+                  icon: $r('app.media.ic_public_gps'),
+                  value: this.locationLabel(),
+                  showArrow: true,
+                  tappable: true,
+                  onRowTap: (): void => {
                     this.openRadio('settingsLocation', ['settingsLocationNone', ...PROVINCES],
                       (): number => {
                         const loc = this.settings.location;
@@ -191,7 +241,8 @@ export struct SettingsPage {
                         loc.province = PROVINCES[idx - 1];
                         this.settings.setLocation(loc);
                       }, $r('app.media.ic_public_gps'))
-                  })
+                  },
+                })
               }
               .backgroundColor($r('app.color.card_bg'))
               .borderRadius(Dim.radiusL)
@@ -201,8 +252,11 @@ export struct SettingsPage {
               // ---------- 通知 ----------
               this.sectionHeader('settingsGroupNotify')
               Column() {
-                this.toggleRow('notifyOnReply', $r('app.media.ic_public_ring'),
-                  (): boolean => this.settings.notifyOnReply, (on: boolean): void => {
+                SettingRow({
+                  label: I18n.translate('notifyOnReply'),
+                  icon: $r('app.media.ic_public_ring'),
+                  toggleOn: this.settings.notifyOnReply,
+                  onToggle: (on: boolean): void => {
                     if (!on) {
                       this.settings.setNotifyOnReply(false);
                       return;
@@ -215,14 +269,19 @@ export struct SettingsPage {
                           .showToast({ message: I18n.translate('notifyPermissionDenied'), duration: 2500 });
                       }
                     }).catch(() => {});
-                  })
-                this.toggleRow('liveViewOnReply', $r('app.media.ic_public_clock'),
-                  (): boolean => this.settings.liveViewOnReply, (on: boolean): void => {
+                  },
+                })
+                SettingRow({
+                  label: I18n.translate('liveViewOnReply'),
+                  icon: $r('app.media.ic_public_clock'),
+                  toggleOn: this.settings.liveViewOnReply,
+                  onToggle: (on: boolean): void => {
                     this.settings.setLiveViewOnReply(on);
                     if (!on) {
                       LiveViewService.replyEnded().catch(() => {});
                     }
-                  })
+                  },
+                })
               }
               .backgroundColor($r('app.color.card_bg'))
               .borderRadius(Dim.radiusL)
@@ -232,8 +291,14 @@ export struct SettingsPage {
               // ---------- 数据 ----------
               this.sectionHeader('settingsGroupData')
               Column() {
-                this.optionRow('dataManage', $r('app.media.ic_public_storage'), (): string => '', (): void => {
-                  this.pathStack.pushPathByName('data', null);
+                SettingRow({
+                  label: I18n.translate('dataManage'),
+                  icon: $r('app.media.ic_public_storage'),
+                  showArrow: true,
+                  tappable: true,
+                  onRowTap: (): void => {
+                    this.pathStack.pushPathByName('data', null);
+                  },
                 })
               }
               .backgroundColor($r('app.color.card_bg'))
@@ -244,12 +309,28 @@ export struct SettingsPage {
               // ---------- 关于 ----------
               this.sectionHeader('about')
               Column() {
-                this.infoRow('version', $r('app.media.ic_public_upgrade'), '1.0.0')
-                this.optionRow('userAgreementTitle', $r('app.media.ic_public_text'), (): string => '', (): void => {
-                  this.pathStack.pushPathByName('agreement', null);
+                SettingRow({
+                  label: I18n.translate('version'),
+                  icon: $r('app.media.ic_public_upgrade'),
+                  value: '1.0.0',
                 })
-                this.optionRow('privacyPolicyTitle', $r('app.media.ic_public_privacy'), (): string => '', (): void => {
-                  this.pathStack.pushPathByName('privacy', null);
+                SettingRow({
+                  label: I18n.translate('userAgreementTitle'),
+                  icon: $r('app.media.ic_public_text'),
+                  showArrow: true,
+                  tappable: true,
+                  onRowTap: (): void => {
+                    this.pathStack.pushPathByName('agreement', null);
+                  },
+                })
+                SettingRow({
+                  label: I18n.translate('privacyPolicyTitle'),
+                  icon: $r('app.media.ic_public_privacy'),
+                  showArrow: true,
+                  tappable: true,
+                  onRowTap: (): void => {
+                    this.pathStack.pushPathByName('privacy', null);
+                  },
                 })
               }
               .backgroundColor($r('app.color.card_bg'))
@@ -380,85 +461,13 @@ export struct SettingsPage {
       .padding({ left: 16, top: 4, bottom: 2 })
   }
 
-  /** 选项行：图标 + 标题 + 灰色当前值（空则隐藏）+ 箭头，整行可点 */
-  @Builder
-  optionRow(labelKey: string, icon: Resource, valueFn: () => string, onTap: () => void) {
-    Row({ space: 12 }) {
-      Image(icon)
-        .width(22)
-        .height(22)
-        .fillColor($r('app.color.text_primary'))
-      Text(I18n.translate(labelKey))
-        .fontSize(Fonts.body1())
-        .fontColor($r('app.color.text_primary'))
-        .layoutWeight(1)
-      if (valueFn() !== '') {
-        Text(valueFn())
-          .fontSize(Fonts.body2())
-          .fontColor($r('app.color.text_secondary'))
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .constraintSize({ maxWidth: '46%' })
-      }
-      Image($r('app.media.ic_public_arrow_right'))
-        .width(16)
-        .height(16)
-        .fillColor($r('app.color.text_tertiary'))
-    }
-    .width('100%')
-    .height(56)
-    .padding({ left: 16, right: 16 })
-    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.98 })
-    .onClick(() => {
-      onTap();
-    })
+  /** 位置行尾值 */
+  private locationLabel(): string {
+    const loc = this.settings.location;
+    return loc === null || loc.province === null ? I18n.translate('settingsLocationNone') : loc.province;
   }
 
-  /** 信息行：图标 + 标题 + 只读值（无箭头） */
-  @Builder
-  infoRow(labelKey: string, icon: Resource, value: string) {
-    Row({ space: 12 }) {
-      Image(icon)
-        .width(22)
-        .height(22)
-        .fillColor($r('app.color.text_primary'))
-      Text(I18n.translate(labelKey))
-        .fontSize(Fonts.body1())
-        .fontColor($r('app.color.text_primary'))
-        .layoutWeight(1)
-      Text(value)
-        .fontSize(Fonts.body2())
-        .fontColor($r('app.color.text_secondary'))
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .constraintSize({ maxWidth: '46%' })
-    }
-    .width('100%')
-    .height(56)
-    .padding({ left: 16, right: 16 })
-  }
-
-  /** 开关行：图标 + 标题 + Toggle */
-  @Builder
-  toggleRow(labelKey: string, icon: Resource, isOnFn: () => boolean, onChange: (on: boolean) => void) {
-    Row({ space: 12 }) {
-      Image(icon)
-        .width(22)
-        .height(22)
-        .fillColor($r('app.color.text_primary'))
-      Text(I18n.translate(labelKey))
-        .fontSize(Fonts.body1())
-        .fontColor($r('app.color.text_primary'))
-        .layoutWeight(1)
-      Toggle({ type: ToggleType.Switch, isOn: isOnFn() })
-        .onChange((on: boolean) => {
-          onChange(on);
-        })
-    }
-    .width('100%')
-    .height(56)
-    .padding({ left: 16, right: 16 })
-  }
+  /** 选项/信息/开关行统一由 SettingRow 子组件实现（共用 SettingRow.ets） */
 
   /** 居中单选弹窗：点行换待选，点确认才落盘生效 */
   private openRadio(labelKey: string, optionKeys: string[], selectedFn: () => number,

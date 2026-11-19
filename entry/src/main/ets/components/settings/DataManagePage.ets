@@ -9,43 +9,14 @@ import { picker } from '@kit.CoreFileKit';
 import fs from '@ohos.file.fs';
 import { Logger } from '../../common/Logger';
 import { PageHeader } from './PageHeader';
+import { SettingRow } from './SettingRow';
 
 /**
  * 数据管理子页（仿官方）：每行独立白卡 + 大间距，无分组头、行不带图标；
  * 导入卡下方附灰色说明文字；删除行为红字独立卡。
- * 卡片用子组件而非 @Builder：真机（平板）上 @Builder 渲染的卡片文本/图标
- * 会被整体吞掉只剩 Blank（同款 optionRow 在设置页正常，原因待查），子组件无此问题。
+ * 行统一用 SettingRow 子组件（carded 自带白卡底）：真机（平板）上 @Builder
+ * 渲染的卡片文本/图标会被整体吞掉只剩 Blank，子组件无此问题。
  */
-@ComponentV2
-struct ActionCard {
-  @Param label: string = '';
-  @Param danger: boolean = false;
-  @Param onCardTap: () => void = (): void => {};
-
-  build() {
-    Row() {
-      Text(this.label)
-        .fontSize(Fonts.body1())
-        .fontColor(this.danger ? $r('app.color.warning') : $r('app.color.text_primary'))
-        .layoutWeight(1)
-      if (!this.danger) {
-        Image($r('app.media.ic_public_arrow_right'))
-          .width(16)
-          .height(16)
-          .fillColor($r('app.color.text_tertiary'))
-      }
-    }
-    .width('100%')
-    .height(56)
-    .padding({ left: 16, right: 16 })
-    .backgroundColor($r('app.color.card_bg'))
-    .borderRadius(Dim.radiusL)
-    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.98 })
-    .onClick(() => {
-      this.onCardTap();
-    })
-  }
-}
 
 @ComponentV2
 export struct DataManagePage {
@@ -62,31 +33,23 @@ export struct DataManagePage {
               this.pathStack.pop();
             },
           })
-        Scroll() {
+          Scroll() {
           Column({ space: 20 }) {
-            Row() {
-              Text(I18n.translate('usageStats'))
-                .fontSize(Fonts.body1())
-                .fontColor($r('app.color.text_primary'))
-                .layoutWeight(1)
-              Image($r('app.media.ic_public_arrow_right'))
-                .width(16)
-                .height(16)
-                .fillColor($r('app.color.text_tertiary'))
-            }
-            .width('100%')
-            .height(56)
-            .padding({ left: 16, right: 16 })
-            .backgroundColor($r('app.color.card_bg'))
-            .borderRadius(Dim.radiusL)
-            .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.98 })
-            .onClick(() => {
-              this.pathStack.pushPathByName('usage', null);
+            SettingRow({
+              label: I18n.translate('usageStats'),
+              carded: true,
+              showArrow: true,
+              tappable: true,
+              onRowTap: (): void => {
+                this.pathStack.pushPathByName('usage', null);
+              },
             })
             Column({ space: 8 }) {
-              ActionCard({
+              SettingRow({
                 label: I18n.translate('historyImport'),
-                onCardTap: (): void => {
+                carded: true,
+                tappable: true,
+                onRowTap: (): void => {
                   this.confirmImport();
                 },
               })
@@ -98,16 +61,20 @@ export struct DataManagePage {
             }
             .width('100%')
             .alignItems(HorizontalAlign.Start)
-            ActionCard({
+            SettingRow({
               label: I18n.translate('exportAllLabel'),
-              onCardTap: (): void => {
+              carded: true,
+              tappable: true,
+              onRowTap: (): void => {
                 this.doExport();
               },
             })
-            ActionCard({
+            SettingRow({
               label: I18n.translate('deleteAllSessions'),
+              carded: true,
               danger: true,
-              onCardTap: (): void => {
+              tappable: true,
+              onRowTap: (): void => {
                 this.confirmDeleteAll();
               },
             })
