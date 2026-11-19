@@ -5,6 +5,12 @@
 import { Dim } from '../../common/DesignTokens';
 import { CodeBlock } from './CodeBlock';
 
+// Canvas 中性色板：与主题无关的固定视觉（Canvas 不直接引用资源色）
+const CANVAS_TEXT = '#E6000000';
+const CANVAS_LINE = '#99000000';
+const CANVAS_BRAND = '#0A59F7';
+const CANVAS_CARD = '#FFFFFF';
+
 class MermaidNode {
   id: string = '';
   label: string = '';
@@ -208,11 +214,10 @@ export struct MermaidView {
     const g = this.graph();
     ctx.clearRect(0, 0, w, 10000);
     ctx.fillStyle = '#00000000';
-    const isDark = false; // 主题色由资源提供，Canvas 内用中性色
-    const textColor = isDark ? '#DBFFFFFF' : '#E6000000';
-    const lineColor = isDark ? '#99FFFFFF' : '#99000000';
-    const brandColor = '#0A59F7';
-    const cardColor = isDark ? '#2E3033' : '#FFFFFF';
+    const textColor = CANVAS_TEXT;
+    const lineColor = CANVAS_LINE;
+    const brandColor = CANVAS_BRAND;
+    const cardColor = CANVAS_CARD;
 
     ctx.font = '14px sans-serif';
     const vertical = g.dir === 'TD' || g.dir === 'TB';

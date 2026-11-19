@@ -1,6 +1,6 @@
 import { Fonts } from '../../common/Fonts';
 import { I18n } from '../../common/I18n';
-import { Dim } from '../../common/DesignTokens';
+import { Dim, Motion } from '../../common/DesignTokens';
 import { SettingsStore } from '../../prefs/SettingsStore';
 import { ThemeHelper } from '../../common/ThemeHelper';
 import { AppContextHolder } from '../../common/AppContextHolder';
@@ -30,6 +30,9 @@ const FONT_SCALES: string[] = ['small', 'standard', 'large', 'xl'];
 const EFFORT_KEYS: string[] = ['thinkingEffortLow', 'thinkingEffortStandard', 'thinkingEffortMax'];
 const EFFORTS: ThinkingEffort[] = ['low', 'high', 'max'];
 const LOCALE_KEYS: string[] = ['settingsLocaleZhCN', 'settingsLocaleEnUS'];
+/** 音色卡装饰渐变（与主题无关的固定视觉） */
+const STELLA_GRADIENT: Array<[ResourceColor, number]> = [['#EAF1FF', 0], ['#AFC7FF', 0.55], ['#DCE7FF', 1]];
+const TIDE_GRADIENT: Array<[ResourceColor, number]> = [['#E3E9FF', 0], ['#8CA5EA', 0.55], ['#C6D2F2', 1]];
 
 /**
  * 设置页（仿官方 DeepSeek App）：
@@ -266,7 +269,7 @@ export struct SettingsPage {
                         this.settings.setNotifyOnReply(true);
                       } else {
                         this.getUIContext().getPromptAction()
-                          .showToast({ message: I18n.translate('notifyPermissionDenied'), duration: 2500 });
+                          .showToast({ message: I18n.translate('notifyPermissionDenied'), duration: Motion.toastLong });
                       }
                     }).catch(() => {});
                   },
@@ -365,7 +368,7 @@ export struct SettingsPage {
             .onClick(() => {
               this.closeDialog();
             })
-            .transition(TransitionEffect.OPACITY.animation({ duration: 200, curve: Curve.Smooth }))
+            .transition(TransitionEffect.OPACITY.animation({ duration: Motion.animFast, curve: Curve.Smooth }))
           Column() {
             if (this.dialogHasIcon && this.dialogIcon !== null) {
               Image(this.dialogIcon)
@@ -429,7 +432,7 @@ export struct SettingsPage {
           .borderRadius(Dim.radiusL)
           .clip(true)
           .transition(TransitionEffect.OPACITY.combine(TransitionEffect.scale({ x: 0.95, y: 0.95 }))
-            .animation({ duration: 200, curve: Curve.Smooth }))
+            .animation({ duration: Motion.animFast, curve: Curve.Smooth }))
         }
       }
       .width('100%')
@@ -482,7 +485,7 @@ export struct SettingsPage {
     this.dialogOnSelect = onSelect;
     this.dialogHasIcon = icon !== undefined;
     this.dialogIcon = icon !== undefined ? icon : null;
-    this.getUIContext().animateTo({ duration: 200, curve: Curve.Smooth }, () => {
+    this.getUIContext().animateTo({ duration: Motion.animFast, curve: Curve.Smooth }, () => {
       this.dialogVisible = true;
     });
   }
@@ -493,7 +496,7 @@ export struct SettingsPage {
   }
 
   private closeDialog(): void {
-    this.getUIContext().animateTo({ duration: 200, curve: Curve.Smooth }, () => {
+    this.getUIContext().animateTo({ duration: Motion.animFast, curve: Curve.Smooth }, () => {
       this.dialogVisible = false;
     });
   }
@@ -547,7 +550,7 @@ export struct SettingsPage {
             .borderRadius(52)
             .linearGradient({
               angle: 135,
-              colors: [['#EAF1FF', 0], ['#AFC7FF', 0.55], ['#DCE7FF', 1]],
+              colors: STELLA_GRADIENT,
             })
           Text(I18n.translate('settingsTtsVoiceStella'))
             .fontSize(Fonts.body1())
@@ -568,7 +571,7 @@ export struct SettingsPage {
             .borderRadius(52)
             .linearGradient({
               angle: 135,
-              colors: [['#E3E9FF', 0], ['#8CA5EA', 0.55], ['#C6D2F2', 1]],
+              colors: TIDE_GRADIENT,
             })
           Text(I18n.translate('settingsTtsVoiceTide'))
             .fontSize(Fonts.body1())

@@ -1,6 +1,6 @@
 import { Fonts } from '../../common/Fonts';
 import { I18n } from '../../common/I18n';
-import { Dim } from '../../common/DesignTokens';
+import { Dim, Motion } from '../../common/DesignTokens';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { promptAction } from '@kit.ArkUI';
 import {
@@ -121,7 +121,7 @@ export struct MessageList {
             .width('100%')
           }
           .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 20 }))
-            .animation({ duration: 280, curve: Curve.Smooth }))
+            .animation({ duration: Motion.animBase, curve: Curve.Smooth }))
         }, (m: Message) => m.id)
       }
       .width('100%')
@@ -202,7 +202,7 @@ export struct MessageList {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F0000000')
+    .backgroundColor($r('app.color.photo_scrim'))
     .onClick(() => {
       this.previewOn = false;
     })
@@ -277,7 +277,7 @@ export struct MessageList {
           .onClick(() => {
             copyToClipboard(m.content).then(() => {
               this.getUIContext().getPromptAction()
-                .showToast({ message: I18n.translate('copied'), duration: 1200 });
+                .showToast({ message: I18n.translate('copied'), duration: Motion.toastShort });
             }).catch((err: object) => {
               Logger.warn('MessageList', `copy failed: ${JSON.stringify(err)}`);
             });
@@ -416,7 +416,7 @@ struct AssistantBody {
           }
           .width('100%')
           .onClick(() => {
-            this.getUIContext().animateTo({ duration: 240, curve: Curve.Smooth }, (): void => {
+            this.getUIContext().animateTo({ duration: Motion.animBase, curve: Curve.Smooth }, (): void => {
               this.thinkingOpen = !this.thinkingOpen;
             });
           })
@@ -433,7 +433,7 @@ struct AssistantBody {
             }
             .width('100%')
             .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 8 }))
-              .animation({ duration: 240, curve: Curve.Smooth }))
+              .animation({ duration: Motion.animBase, curve: Curve.Smooth }))
           }
         }
         .padding(10)
@@ -478,7 +478,7 @@ struct AssistantBody {
           }
           .width('100%')
           .onClick(() => {
-            this.getUIContext().animateTo({ duration: 240, curve: Curve.Smooth }, (): void => {
+            this.getUIContext().animateTo({ duration: Motion.animBase, curve: Curve.Smooth }, (): void => {
               this.sourcesOpen = !this.sourcesOpen;
             });
           })
@@ -522,7 +522,7 @@ struct AssistantBody {
             }
             .width('100%')
             .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 8 }))
-              .animation({ duration: 240, curve: Curve.Smooth }))
+              .animation({ duration: Motion.animBase, curve: Curve.Smooth }))
           }
         }
         .padding(10)
@@ -573,7 +573,7 @@ struct AssistantBody {
             .onClick(() => {
               copyToClipboard(replyTextOf(this.message)).then(() => {
                 this.getUIContext().getPromptAction()
-                  .showToast({ message: I18n.translate('copied'), duration: 1200 });
+                  .showToast({ message: I18n.translate('copied'), duration: Motion.toastShort });
               }).catch((err: object) => {
                 Logger.warn('MessageList', `copy failed: ${JSON.stringify(err)}`);
               });

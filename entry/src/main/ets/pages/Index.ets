@@ -10,7 +10,7 @@ import { ApiError } from '../model/ApiError';
 import { KeyVault } from '../prefs/KeyVault';
 import { ChatStore } from '../service/chat/ChatStore';
 import { ReplyEngine } from '../service/chat/ReplyEngine';
-import { Dim } from '../common/DesignTokens';
+import { Dim, Motion } from '../common/DesignTokens';
 import { DrawerButton, StatusCapsule } from '../components/titlebar/TopControls';
 import { LegalDocPage, LegalSection, buildPrivacySections, buildAgreementSections } from '../components/privacy/LegalDocPage';
 import { MessageList } from '../components/messages/MessageList';
@@ -76,7 +76,7 @@ struct Index {
     const narrow = (AppStorage.get<number>('bpWindowWidth') ?? 0) < Dim.siderPermanentBp;
     const progress = AppStorage.get<number>('drawerProgress') ?? 0;
     if (narrow && progress > 0.01) {
-      this.getUIContext().animateTo({ duration: 300, curve: Curve.Smooth }, (): void => {
+      this.getUIContext().animateTo({ duration: Motion.animSlow, curve: Curve.Smooth }, (): void => {
         AppStorage.setOrCreate<number>('drawerProgress', 0);
       });
       return true;
@@ -239,13 +239,13 @@ struct HomePage {
   }
 
   private openDrawer(): void {
-    this.getUIContext().animateTo({ duration: 300, curve: Curve.Smooth }, (): void => {
+    this.getUIContext().animateTo({ duration: Motion.animSlow, curve: Curve.Smooth }, (): void => {
       this.drawerProgress = 1;
     });
   }
 
   private closeDrawer(): void {
-    this.getUIContext().animateTo({ duration: 300, curve: Curve.Smooth }, (): void => {
+    this.getUIContext().animateTo({ duration: Motion.animSlow, curve: Curve.Smooth }, (): void => {
       this.drawerProgress = 0;
     });
   }
@@ -554,7 +554,7 @@ struct ChatView {
     // 空会话没有可压缩的上下文：直接拒绝，不发摘要请求
     if (this.store.visible.length === 0) {
       this.getUIContext().getPromptAction()
-        .showToast({ message: I18n.translate('compactEmpty'), duration: 2000 });
+        .showToast({ message: I18n.translate('compactEmpty'), duration: Motion.toastMid });
       return;
     }
     // 低上下文压缩无意义：摘要丢细节还白耗一次请求，占用达到阈值才允许
@@ -562,17 +562,17 @@ struct ChatView {
     if (this.stat.used < minTokens) {
       const percent = `${Math.round(ModelInfo.COMPACT_MIN_RATIO * 100)}%`;
       this.getUIContext().getPromptAction()
-        .showToast({ message: I18n.translate('compactLowContext', { 'percent': percent }), duration: 2000 });
+        .showToast({ message: I18n.translate('compactLowContext', { 'percent': percent }), duration: Motion.toastMid });
       return;
     }
     this.getUIContext().getPromptAction()
-      .showToast({ message: I18n.translate('compactRunning'), duration: 3000 });
+      .showToast({ message: I18n.translate('compactRunning'), duration: Motion.toastMax });
     ReplyEngine.compact(this.store.currentSessionId).then((r: string) => {
       const key = r === 'ok' ? 'compactDone' : 'compactTooShort';
-      this.getUIContext().getPromptAction().showToast({ message: I18n.translate(key), duration: 2000 });
+      this.getUIContext().getPromptAction().showToast({ message: I18n.translate(key), duration: Motion.toastMid });
     }).catch(() => {
       this.getUIContext().getPromptAction()
-        .showToast({ message: I18n.translate('compactFailed'), duration: 2500 });
+        .showToast({ message: I18n.translate('compactFailed'), duration: Motion.toastLong });
     });
   }
 
@@ -607,7 +607,7 @@ struct ChatView {
       this.draftFiles = [];
       this.editingId = '';
       this.getUIContext().getPromptAction()
-        .showToast({ message: I18n.translate('messageQueued'), duration: 2000 });
+        .showToast({ message: I18n.translate('messageQueued'), duration: Motion.toastMid });
       return;
     }
     let files = this.draftFiles;
@@ -660,13 +660,13 @@ struct ChatView {
         fontColor: $r('app.color.brand_activated'),
         action: (): void => {
           this.getUIContext().getPromptAction()
-            .showToast({ message: I18n.translate('compactRunning'), duration: 3000 });
+            .showToast({ message: I18n.translate('compactRunning'), duration: Motion.toastMax });
           ReplyEngine.compact(this.store.currentSessionId).then((): void => {
             deliver();
           }).catch((): void => {
             // 压缩失败不阻断发送：上下文若真超限由 API 错误路径提示
             this.getUIContext().getPromptAction()
-              .showToast({ message: I18n.translate('compactFailed'), duration: 2500 });
+              .showToast({ message: I18n.translate('compactFailed'), duration: Motion.toastLong });
             deliver();
           });
         },

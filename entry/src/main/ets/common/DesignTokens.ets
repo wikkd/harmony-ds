@@ -33,3 +33,18 @@ export class Dim {
   /** 侧栏抽屉从 sm/md 展开的阈值 */
   static readonly siderPermanentBp: number = 840;
 }
+
+/** 动效时长（ms）：进出场三档 + Toast 四档，统一全应用节奏 */
+export class Motion {
+  /** 弹窗淡入、小型过渡 */
+  static readonly animFast: number = 200;
+  /** 面板/气泡进出场 */
+  static readonly animBase: number = 240;
+  /** 抽屉推出 */
+  static readonly animSlow: number = 300;
+  static readonly toastShort: number = 1500;
+  static readonly toastMid: number = 2000;
+  static readonly toastLong: number = 2500;
+  /** 需要阅读的提示（导入/导出结果） */
+  static readonly toastMax: number = 3000;
+}

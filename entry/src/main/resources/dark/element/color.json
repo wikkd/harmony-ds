@@ -5,6 +5,8 @@
     { "name": "sub_bg", "value": "#0DFFFFFF"},
     { "name": "card_bg", "value": "#2E3033"},
     { "name": "dialog_bg", "value": "#202224"},
+    { "name": "dialog_btn_secondary", "value": "#99FFFFFF"},
+    { "name": "photo_scrim", "value": "#F0000000"},
     { "name": "panel_bg", "value": "#202224"},
     { "name": "text_field_bg", "value": "#1AFFFFFF"},
     { "name": "text_field_sub_bg", "value": "#1AFFFFFF"},

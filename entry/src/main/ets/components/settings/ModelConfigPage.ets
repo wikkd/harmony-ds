@@ -1,6 +1,6 @@
 import { Fonts } from '../../common/Fonts';
 import { I18n } from '../../common/I18n';
-import { Dim } from '../../common/DesignTokens';
+import { Dim, Motion } from '../../common/DesignTokens';
 import { SettingsStore } from '../../prefs/SettingsStore';
 import { KeyVault } from '../../prefs/KeyVault';
 import { ApiClient } from '../../service/api/ApiClient';
@@ -138,7 +138,7 @@ export struct ModelConfigPage {
                   this.settings.setModel(this.modelInput);
                   this.settings.setApiOrigin(this.originInput);
                   this.getUIContext().getPromptAction()
-                    .showToast({ message: I18n.translate('settingsSaved'), duration: 1500 });
+                    .showToast({ message: I18n.translate('settingsSaved'), duration: Motion.toastShort });
                 })
 
               Text(I18n.translate('customModelHint'))
@@ -181,7 +181,7 @@ export struct ModelConfigPage {
       return KeyVault.save(AppContextHolder.get(), key).then(() => {
         this.verifyState = 'ok';
         AppStorage.setOrCreate<boolean>('hasApiKey', true);
-        this.getUIContext().getPromptAction().showToast({ message: I18n.translate('apiKeyStart'), duration: 1500 });
+        this.getUIContext().getPromptAction().showToast({ message: I18n.translate('apiKeyStart'), duration: Motion.toastShort });
       });
     }).catch((err: ApiError) => {
       this.verifyState = 'fail';

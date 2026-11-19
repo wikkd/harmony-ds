@@ -1,6 +1,6 @@
 import { Fonts } from '../../common/Fonts';
 import { I18n } from '../../common/I18n';
-import { Dim } from '../../common/DesignTokens';
+import { Dim, Motion } from '../../common/DesignTokens';
 import { KeyVault } from '../../prefs/KeyVault';
 import { AppContextHolder } from '../../common/AppContextHolder';
 import { SettingsStore } from '../../prefs/SettingsStore';
@@ -185,7 +185,7 @@ export struct ChatInput {
     }
     .width('100%')
     .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 24 }))
-      .animation({ duration: 220, curve: Curve.Smooth }))
+      .animation({ duration: Motion.animFast, curve: Curve.Smooth }))
   }
 
   /** 发送圆钮（品牌蓝底白箭头） */
@@ -366,7 +366,7 @@ export struct ChatInput {
             },
           })
           .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 30 }))
-            .animation({ duration: 260, curve: Curve.Smooth }))
+            .animation({ duration: Motion.animBase, curve: Curve.Smooth }))
         } else if (this.settings.customModel) {
           // 自定义模型：仅输入 + 发送（DeepSeek 专有工具不可用）
           if (this.editing) {
@@ -488,14 +488,14 @@ export struct ChatInput {
     if (next) {
       this.getUIContext().getFocusController().clearFocus();
     }
-    this.getUIContext().animateTo({ duration: 220, curve: Curve.Smooth }, () => {
+    this.getUIContext().animateTo({ duration: Motion.animFast, curve: Curve.Smooth }, () => {
       this.attachPanelOpen = next;
     });
   }
 
   /** 语音面板开关（含进出场动画作用域） */
   private switchVoice(on: boolean): void {
-    this.getUIContext().animateTo({ duration: 260, curve: Curve.Smooth }, () => {
+    this.getUIContext().animateTo({ duration: Motion.animBase, curve: Curve.Smooth }, () => {
       this.attachPanelOpen = false;
       this.voiceActive = on;
     });
@@ -533,7 +533,7 @@ export struct ChatInput {
     KeyVault.load(AppContextHolder.get()).then((key: string | null) => {
       if (key === null || key === '') {
         Logger.warn('ChatInput', 'no api key');
-        this.getUIContext().getPromptAction().showToast({ message: I18n.translate('apiKeyRequired'), duration: 2000 });
+        this.getUIContext().getPromptAction().showToast({ message: I18n.translate('apiKeyRequired'), duration: Motion.toastMid });
         this.onNeedKey();
         return;
       }

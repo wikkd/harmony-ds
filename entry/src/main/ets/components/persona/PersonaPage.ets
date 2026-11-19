@@ -1,6 +1,6 @@
 import { Fonts } from '../../common/Fonts';
 import { I18n } from '../../common/I18n';
-import { Dim } from '../../common/DesignTokens';
+import { Dim, Motion } from '../../common/DesignTokens';
 import { SettingsStore } from '../../prefs/SettingsStore';
 import { CharacterCard } from '../../common/CharacterCard';
 import { picker } from '@kit.CoreFileKit';
@@ -100,7 +100,7 @@ export struct PersonaPage {
 
   private toastSaved(): void {
     this.getUIContext().getPromptAction()
-      .showToast({ message: I18n.translate('settingsSaved'), duration: 1500 });
+      .showToast({ message: I18n.translate('settingsSaved'), duration: Motion.toastShort });
   }
 
   /** 导入角色卡 md：选择文件 → 解析填入草稿（不自动保存，用户确认后生效） */
@@ -130,6 +130,6 @@ export struct PersonaPage {
 
   private toast(msg: string): void {
     this.getUIContext().getPromptAction()
-      .showToast({ message: msg, duration: 2000 });
+      .showToast({ message: msg, duration: Motion.toastMid });
   }
 }

@@ -1,6 +1,6 @@
 import { Fonts } from '../../common/Fonts';
 import { I18n } from '../../common/I18n';
-import { Dim } from '../../common/DesignTokens';
+import { Dim, Motion } from '../../common/DesignTokens';
 import { ChatStore } from '../../service/chat/ChatStore';
 import { MarkdownExport } from '../../service/history/MarkdownExport';
 import { Session } from '../../model/ChatTypes';
@@ -224,11 +224,11 @@ export struct Sider {
         MarkdownExport.exportSession(s.id).then((ok: boolean) => {
           if (ok) {
             this.getUIContext().getPromptAction()
-              .showToast({ message: I18n.translate('exportMdDone'), duration: 1500 });
+              .showToast({ message: I18n.translate('exportMdDone'), duration: Motion.toastShort });
           }
         }).catch(() => {
           this.getUIContext().getPromptAction()
-            .showToast({ message: I18n.translate('exportMdFailed'), duration: 2000 });
+            .showToast({ message: I18n.translate('exportMdFailed'), duration: Motion.toastMid });
         });
       },
     };

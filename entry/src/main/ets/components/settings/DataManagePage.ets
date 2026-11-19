@@ -1,6 +1,6 @@
 import { Fonts } from '../../common/Fonts';
 import { I18n } from '../../common/I18n';
-import { Dim } from '../../common/DesignTokens';
+import { Dim, Motion } from '../../common/DesignTokens';
 import { ChatStore } from '../../service/chat/ChatStore';
 import { HistoryArchive, ArchiveError } from '../../service/history/HistoryArchive';
 import { AppContextHolder } from '../../common/AppContextHolder';
@@ -104,8 +104,8 @@ export struct DataManagePage {
 
   private confirmDeleteAll(): void {
     const buttons: Array<promptAction.Button> = [];
-    const bCancel: promptAction.Button = { text: I18n.translate('cancel'), color: '#66000000' };
-    const bDelete: promptAction.Button = { text: I18n.translate('delete'), color: '#E84026' };
+    const bCancel: promptAction.Button = { text: I18n.translate('cancel'), color: $r('app.color.dialog_btn_secondary') };
+    const bDelete: promptAction.Button = { text: I18n.translate('delete'), color: $r('app.color.warning') };
     buttons.push(bCancel);
     buttons.push(bDelete);
     const options: promptAction.ShowDialogOptions = {
@@ -118,7 +118,7 @@ export struct DataManagePage {
       this.getUIContext().getPromptAction().showDialog(options).then((result) => {
         if (result.index === 1) {
           this.store.deleteAll();
-          this.getUIContext().getPromptAction().showToast({ message: I18n.translate('historyDeleted'), duration: 1500 });
+          this.getUIContext().getPromptAction().showToast({ message: I18n.translate('historyDeleted'), duration: Motion.toastShort });
         }
       });
     } catch (err) {
@@ -129,8 +129,8 @@ export struct DataManagePage {
   /** 导入历史对话：选择 ZIP → 确认覆盖 → 解析替换 */
   private confirmImport(): void {
     const buttons: Array<promptAction.Button> = [];
-    const bCancel: promptAction.Button = { text: I18n.translate('cancel'), color: '#66000000' };
-    const bConfirm: promptAction.Button = { text: I18n.translate('historyImportConfirm'), color: '#0A59F7' };
+    const bCancel: promptAction.Button = { text: I18n.translate('cancel'), color: $r('app.color.dialog_btn_secondary') };
+    const bConfirm: promptAction.Button = { text: I18n.translate('historyImportConfirm'), color: $r('app.color.brand_activated') };
     buttons.push(bCancel);
     buttons.push(bConfirm);
     const options: promptAction.ShowDialogOptions = {
@@ -173,11 +173,11 @@ export struct DataManagePage {
       }
       this.getUIContext().getPromptAction().showToast({
         message: I18n.translate(count === 1 ? 'historyImportedOne' : 'historyImported', { 'count': `${count}` }),
-        duration: 2000,
+        duration: Motion.toastMid,
       });
     } catch (err) {
       const key = err instanceof ArchiveError ? (err as ArchiveError).key : 'historyImportFailed';
-      this.getUIContext().getPromptAction().showToast({ message: I18n.translate(key), duration: 2500 });
+      this.getUIContext().getPromptAction().showToast({ message: I18n.translate(key), duration: Motion.toastLong });
       Logger.warn('DataManagePage', `import failed: ${JSON.stringify(err)}`);
     }
   }
@@ -193,11 +193,11 @@ export struct DataManagePage {
       const result = await docPicker.save(saveOptions);
       if (result.length > 0) {
         fs.copyFileSync(produced, result[0]);
-        this.getUIContext().getPromptAction().showToast({ message: I18n.translate('historyExported'), duration: 1500 });
+        this.getUIContext().getPromptAction().showToast({ message: I18n.translate('historyExported'), duration: Motion.toastShort });
       }
     } catch (err) {
       const message = err instanceof Error ? (err as Error).message : `${JSON.stringify(err)}`;
-      this.getUIContext().getPromptAction().showToast({ message: I18n.translate('historyExportFailed', { 'message': message }), duration: 2500 });
+      this.getUIContext().getPromptAction().showToast({ message: I18n.translate('historyExportFailed', { 'message': message }), duration: Motion.toastLong });
       Logger.warn('DataManagePage', `export failed: ${JSON.stringify(err)}`);
     }
   }

@@ -3,7 +3,7 @@ import { CodeSpan, Highlighter } from './Highlighter';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { promptAction } from '@kit.ArkUI';
 import { I18n } from '../../common/I18n';
-import { Dim } from '../../common/DesignTokens';
+import { Dim, Motion } from '../../common/DesignTokens';
 
 class LineSpans {
   spans: CodeSpan[] = [];
@@ -123,7 +123,7 @@ export struct CodeBlock {
     try {
       const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, this.code);
       pasteboard.getSystemPasteboard().setData(data).then(() => {
-        this.getUIContext().getPromptAction().showToast({ message: I18n.translate('copied'), duration: 1200 });
+        this.getUIContext().getPromptAction().showToast({ message: I18n.translate('copied'), duration: Motion.toastShort });
       });
     } catch (err) {
       // 忽略
