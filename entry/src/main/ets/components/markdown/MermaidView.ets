@@ -136,12 +136,25 @@ class MermaidParser {
 @ComponentV2
 export struct MermaidView {
   @Param code: string = '';
-  @State fail: boolean = false;
+  @Local fail: boolean = false;
+  /** Canvas 已就绪：@Monitor 里重绘前据此守卫 */
+  @Local ready: boolean = false;
 
   aboutToAppear(): void {
     if (MermaidParser.parse(this.code) === null) {
       this.fail = true;
     }
+  }
+
+  /** 版本切换/重发会让复用的同下标块收到新 code：重校验并重绘 */
+  @Monitor('code')
+  onCodeChange(): void {
+    const ok = MermaidParser.parse(this.code) !== null;
+    this.fail = !ok;
+    if (!ok || !this.ready) {
+      return;
+    }
+    this.draw();
   }
 
   build() {
@@ -156,6 +169,7 @@ export struct MermaidView {
           .width('100%')
           .height(this.canvasHeight())
           .onReady(() => {
+            this.ready = true;
             this.draw();
           })
       }

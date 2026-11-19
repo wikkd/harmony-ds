@@ -164,7 +164,11 @@ struct BlockView {
 
   build() {
     if (this.block.type === 'code') {
-      CodeBlock({ code: this.block.codeText, lang: this.block.codeLang })
+      if (this.block.codeLang.toLowerCase() === 'mermaid') {
+        MermaidView({ code: this.block.codeText })
+      } else {
+        CodeBlock({ code: this.block.codeText, lang: this.block.codeLang })
+      }
     } else if (this.block.type === 'math') {
       MathBlock({ latex: this.block.mathText })
     } else if (this.block.type === 'hr') {
