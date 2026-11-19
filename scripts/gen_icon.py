@@ -41,9 +41,12 @@ X_M0, X_M1 = 517, 593  # H 右竖 = D 左竖（共杆）
 BAR_Y0, BAR_Y1 = 468, 544  # H 横杠（光学中心略高于几何中心）
 D_R = 180              # D 外弧半径（右缘为半圆）
 ARC_C = (759 - D_R, (H_TOP + H_BOT) // 2)  # 外弧圆心 (579, 516)
-SPARK = ((786, 362), 30, 11)   # 星芒点缀：中心, 外半径, 内半径
-# 气泡尾点缀：贴左竖底部，尖角朝左下（经典气泡尾，避免居中对称误读成箭头）
-TAIL = [(268, 702), (350, 702), (278, 768)]
+# 扁平化放大：字面绕 (512,516) 整体缩放（笔画同步加粗）；点缀用绝对坐标另收位
+SC = 1.12
+CEN = (512.0, 516.0)
+FLAT_BG = (77, 107, 254)       # 扁平纯色底 DeepSeek 蓝 #4D6BFE
+SPARK = ((788, 344), 24, 8.5)  # 星芒点缀：中心, 外半径, 内半径（放大后收进安全圆）
+TAIL = [(236, 710), (322, 710), (286, 782)]  # 气泡尾（绝对坐标，贴放大后左竖底部）
 
 
 def make_background():
@@ -66,28 +69,33 @@ def make_background():
     return Image.fromarray(arr, 'RGBA').resize((BASE, BASE), Image.LANCZOS)
 
 
-def make_foreground():
-    """HD 连字白稿（RGBA 透明底）：D 字碗挖竖椭圆字腔，缀星芒与气泡尾。"""
+def make_foreground(shadow=False):
+    """HD 连字白稿（RGBA 透明底）：D 字碗挖竖椭圆字腔，缀星芒与气泡尾。
+    字面绕 CEN 按 SC 缩放（放大且笔画同步加粗）；shadow=True 时垫柔投影。"""
     layer = Image.new('L', (W, W), 0)
     dr = ImageDraw.Draw(layer)
     k = SS
 
-    def rrect(x0, y0, x1, y1, r=0, corners=None):
-        dr.rounded_rectangle([x0 * k, y0 * k, x1 * k, y1 * k], radius=r * k,
-                             corners=corners, fill=255)
+    def sx(v):
+        return (CEN[0] + (v - CEN[0]) * SC) * k
 
-    # H：左竖 + 横杠 + 共杆（顶端圆角、底端平角接尾巴/基线，横杠两端埋进竖笔）
+    def sy(v):
+        return (CEN[1] + (v - CEN[1]) * SC) * k
+
+    def rrect(x0, y0, x1, y1, r=0, corners=None):
+        dr.rounded_rectangle([sx(x0), sy(y0), sx(x1), sy(y1)],
+                             radius=r * SC * k, corners=corners, fill=255)
+
+    # H：左竖 + 横杠 + 共杆（顶端圆角、底端平角齐基线，横杠两端埋进竖笔）
     stem_c = (True, False, False, False)
     rrect(X_L0, H_TOP, X_L1, H_BOT, R_TERM, corners=stem_c)
     rrect(X_M0, H_TOP, X_M1, H_BOT, R_TERM, corners=stem_c)
     rrect(X_L0, BAR_Y0, X_M0, BAR_Y1)
     # D：杆右接半圆字碗（半径 180 超出圆角矩形上限，用矩形 + 半圆盘求并）
-    arc_cx = 759 - D_R          # 外弧圆心 x = 579
-    cy = (H_TOP + H_BOT) // 2   # 516
-    rrect(X_M0, H_TOP, arc_cx, H_BOT)
-    dr.pieslice([(arc_cx - D_R) * k, (cy - D_R) * k, (arc_cx + D_R) * k, (cy + D_R) * k],
+    dr.rounded_rectangle([sx(X_M0), sy(H_TOP), sx(579), sy(H_BOT)], fill=255)
+    dr.pieslice([sx(579 - D_R), sy(516 - D_R), sx(579 + D_R), sy(516 + D_R)],
                 start=270, end=90, fill=255)
-    # 点缀：星芒（右上）
+    # 点缀：星芒（右上，绝对坐标）
     (scx, scy), rout, rin = SPARK
     pts = []
     for i in range(8):
@@ -104,7 +112,7 @@ def make_foreground():
     inset = H_BOT - H_TOP - 2 * STROKE      # 腔高 208
     ccx = (X_M1 + 759 - STROKE) / 2         # 腔心 x = 638
     rx = (759 - STROKE - X_M1) / 2          # 腔半宽 45
-    hd.ellipse([(ccx - rx) * k, (cy - inset / 2) * k, (ccx + rx) * k, (cy + inset / 2) * k],
+    hd.ellipse([sx(ccx - rx), sy(516 - inset / 2), sx(ccx + rx), sy(516 + inset / 2)],
                fill=255)
 
     alpha = ImageChops.subtract(layer, holes)
@@ -112,12 +120,15 @@ def make_foreground():
     rgba.putalpha(alpha)
     white = rgba
 
+    if not shadow:
+        return white.resize((BASE, BASE), Image.LANCZOS)
+
     # 柔投影垫在白稿下（烘进前景层：系统合成 background→foreground 时自然出现）
     blur_a = alpha.filter(ImageFilter.GaussianBlur(56))          # 4x 画布，56 = 基准 14
-    shadow = Image.new('RGBA', (W, W), (8, 14, 48, 0))
-    shadow.putalpha(blur_a.point(lambda v: int(v * 0.32)))
+    shadow_img = Image.new('RGBA', (W, W), (8, 14, 48, 0))
+    shadow_img.putalpha(blur_a.point(lambda v: int(v * 0.32)))
     out = Image.new('RGBA', (W, W), (0, 0, 0, 0))
-    out.alpha_composite(shadow, (0, 40))                         # 4x 画布，40 = 基准 10
+    out.alpha_composite(shadow_img, (0, 40))                     # 4x 画布，40 = 基准 10
     out.alpha_composite(white)
     return out.resize((BASE, BASE), Image.LANCZOS)
 
@@ -155,24 +166,35 @@ def make_preview(bg, fg, path):
     sheet.save(path)
 
 
+def make_flat_background():
+    """扁平纯色底。"""
+    img = Image.new('RGBA', (BASE, BASE), FLAT_BG + (255,))
+    return img
+
+
 def main():
     ap = argparse.ArgumentParser(description='生成 harmony DS 图标资产')
     ap.add_argument('--bg', help='AI 生成底图路径（缺省用程序渐变）')
     ap.add_argument('--shade', type=float, default=1.0, help='底图亮度系数（<1 压暗提对比）')
     ap.add_argument('--sat', type=float, default=1.0, help='底图饱和度系数')
+    ap.add_argument('--flat', action='store_true', help='扁平化：纯色底 + 无投影')
     args = ap.parse_args()
 
-    if args.bg:
-        bg = Image.open(args.bg).convert('RGBA')
-        if bg.width != BASE or bg.height != BASE:
-            bg = bg.resize((BASE, BASE), Image.LANCZOS)
-        if args.shade != 1.0:
-            bg = ImageEnhance.Brightness(bg).enhance(args.shade)
-        if args.sat != 1.0:
-            bg = ImageEnhance.Color(bg).enhance(args.sat)
+    if args.flat:
+        bg = make_flat_background()
+        fg = make_foreground(shadow=False)
     else:
-        bg = make_background()
-    fg = make_foreground()
+        if args.bg:
+            bg = Image.open(args.bg).convert('RGBA')
+            if bg.width != BASE or bg.height != BASE:
+                bg = bg.resize((BASE, BASE), Image.LANCZOS)
+            if args.shade != 1.0:
+                bg = ImageEnhance.Brightness(bg).enhance(args.shade)
+            if args.sat != 1.0:
+                bg = ImageEnhance.Color(bg).enhance(args.sat)
+        else:
+            bg = make_background()
+        fg = make_foreground(shadow=True)
     bg.save(os.path.join(MEDIA, 'background.png'))
     fg.save(os.path.join(MEDIA, 'foreground.png'))
     make_start_icon(bg, fg).save(os.path.join(MEDIA, 'startIcon.png'))
