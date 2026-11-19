@@ -146,8 +146,13 @@ export class HistoryArchive {
     const wf3 = fs.openSync(`${workDir}/chat_session_index.json`, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
     fs.writeSync(wf3.fd, JSON.stringify(index));
     fs.closeSync(wf3);
-    // 打包（zipFile 压缩目录）
+    // 打包（zipFile 压缩目录；秒级时间戳命名，避免同日重复导出撞已存在目标导致压缩失败）
     const outZip = `${context.filesDir}/deepseek_data-${HistoryArchive.dateStamp()}.zip`;
+    try {
+      fs.unlinkSync(outZip);
+    } catch (e) {
+      // 目标不存在属正常
+    }
     const zipOptions: zlib.Options = { level: 0 };
     await zlib.zipFile(workDir, outZip, zipOptions);
     try {
@@ -634,10 +639,14 @@ export class HistoryArchive {
     return Number.isFinite(t) ? t : Date.now();
   }
 
+  /** 导出包名时间戳：YYYYMMDD-HHmmss（秒级，规避同日多次导出同名冲突） */
   private static dateStamp(): string {
     const d = new Date();
     const m = `${d.getMonth() + 1}`.padStart(2, '0');
     const day = `${d.getDate()}`.padStart(2, '0');
-    return `${d.getFullYear()}${m}${day}`;
+    const h = `${d.getHours()}`.padStart(2, '0');
+    const min = `${d.getMinutes()}`.padStart(2, '0');
+    const s = `${d.getSeconds()}`.padStart(2, '0');
+    return `${d.getFullYear()}${m}${day}-${h}${min}${s}`;
   }
 }

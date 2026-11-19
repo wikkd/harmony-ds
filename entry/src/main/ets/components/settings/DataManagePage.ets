@@ -5,6 +5,7 @@ import { ChatStore } from '../../service/chat/ChatStore';
 import { HistoryArchive, ArchiveError } from '../../service/history/HistoryArchive';
 import { AppContextHolder } from '../../common/AppContextHolder';
 import { promptAction } from '@kit.ArkUI';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { picker } from '@kit.CoreFileKit';
 import fs from '@ohos.file.fs';
 import { Logger } from '../../common/Logger';
@@ -178,14 +179,16 @@ export struct DataManagePage {
     } catch (err) {
       const key = err instanceof ArchiveError ? (err as ArchiveError).key : 'historyImportFailed';
       this.getUIContext().getPromptAction().showToast({ message: I18n.translate(key), duration: Motion.toastLong });
-      Logger.warn('DataManagePage', `import failed: ${JSON.stringify(err)}`);
+      const ibe = err as BusinessError;
+      Logger.warn('DataManagePage', `import failed: code=${ibe.code} message=${ibe.message}`);
     }
   }
 
   /** 导出全部会话到用户选择的 ZIP */
   private async doExport(): Promise<void> {
+    let produced: string | null = null;
     try {
-      const produced = await HistoryArchive.exportZip();
+      produced = await HistoryArchive.exportZip();
       // 另存为
       const docPicker = new picker.DocumentViewPicker();
       const saveOptions = new picker.DocumentSaveOptions();
@@ -196,9 +199,20 @@ export struct DataManagePage {
         this.getUIContext().getPromptAction().showToast({ message: I18n.translate('historyExported'), duration: Motion.toastShort });
       }
     } catch (err) {
-      const message = err instanceof Error ? (err as Error).message : `${JSON.stringify(err)}`;
+      const message = err instanceof Error ? (err as Error).message : `${err}`;
       this.getUIContext().getPromptAction().showToast({ message: I18n.translate('historyExportFailed', { 'message': message }), duration: Motion.toastLong });
-      Logger.warn('DataManagePage', `export failed: ${JSON.stringify(err)}`);
+      // BusinessError 的 code/message 非枚举属性，JSON.stringify 只会得到 {}——逐字段记录
+      const be = err as BusinessError;
+      Logger.warn('DataManagePage', `export failed: code=${be.code} message=${be.message}`);
+    } finally {
+      // 沙箱内产物用完即删（用户取消另存/拷贝失败也不残留，避免 filesDir 逐日累积）
+      if (produced !== null) {
+        try {
+          fs.unlinkSync(produced);
+        } catch (e) {
+          // 已不存在属正常
+        }
+      }
     }
   }
 }
