@@ -47,12 +47,9 @@ export default class EntryAbility extends UIAbility {
     });
 
     try {
-      // 主题按设置应用（默认跟随系统）
+      // 主题按设置应用（默认跟随系统）；init 已在 onCreate 完成（同步读 Preferences），此处不再重复调用
       const settings = SettingsStore.get();
       ThemeHelper.apply(this.context, settings.themePreference);
-      settings.init(this.context).then(() => {
-        ThemeHelper.apply(this.context, settings.themePreference);
-      });
     } catch (err) {
       hilog.error(DOMAIN, TAG, 'Failed to set colorMode: %{public}s', JSON.stringify(err));
     }

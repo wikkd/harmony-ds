@@ -1,3 +1,4 @@
+import BuildProfile from 'BuildProfile';
 import { asset } from '@kit.AssetStoreKit';
 import { util } from '@kit.ArkTS';
 import { preferences } from '@kit.ArkData';
@@ -49,6 +50,10 @@ export class KeyVault {
       Logger.info(TAG, 'key saved to asset store');
       return;
     } catch (err) {
+      if (!BuildProfile.DEBUG) {
+        // 真机（release）asset 失败不允许静默降级为可逆混淆存储：直接上抛给调用方提示
+        throw err as Error;
+      }
       Logger.warn(TAG, `asset store unavailable, fallback: ${JSON.stringify(err)}`);
     }
     await KeyVault.initFallback(context);
@@ -73,7 +78,11 @@ export class KeyVault {
         }
       }
     } catch (err) {
-      // 走降级
+      if (!BuildProfile.DEBUG) {
+        // release 下 asset 读取失败不再尝试可逆混淆降级（与 save 的门控一致）
+        Logger.warn(TAG, `asset load failed: ${JSON.stringify(err)}`);
+        return null;
+      }
     }
     await KeyVault.initFallback(context);
     if (KeyVault.fallbackStore) {

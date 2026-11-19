@@ -1,5 +1,7 @@
 import { relationalStore } from '@kit.ArkData';
 import { Context } from '@kit.AbilityKit';
+import fs from '@ohos.file.fs';
+import { AppContextHolder } from '../../common/AppContextHolder';
 import {
   AssistantMessage,
   FileAttachment,
@@ -125,21 +127,109 @@ export class ChatDb {
 
   static async deleteSession(id: string): Promise<void> {
     const db = ChatDb.db();
-    const pMsg = new relationalStore.RdbPredicates('messages');
-    pMsg.equalTo('sessionId', id);
-    await db.delete(pMsg);
-    const pSes = new relationalStore.RdbPredicates('sessions');
-    pSes.equalTo('id', id);
-    await db.delete(pSes);
+    // 落库前先收集该会话附件本地路径，删除成功后清理缓存文件
+    const attPaths = await ChatDb.attachmentPathsOf(id);
+    const tx = await db.createTransaction();
+    try {
+      const pMsg = new relationalStore.RdbPredicates('messages');
+      pMsg.equalTo('sessionId', id);
+      await tx.delete(pMsg);
+      const pSes = new relationalStore.RdbPredicates('sessions');
+      pSes.equalTo('id', id);
+      await tx.delete(pSes);
+      await tx.commit();
+    } catch (err) {
+      try {
+        await tx.rollback();
+      } catch (e) {
+        // 回滚失败时保留原始错误
+      }
+      throw err as Error;
+    }
+    ChatDb.removeFiles(attPaths);
   }
 
   static async deleteAllSessions(): Promise<void> {
     const db = ChatDb.db();
-    await db.delete(new relationalStore.RdbPredicates('messages'));
-    await db.delete(new relationalStore.RdbPredicates('sessions'));
+    const tx = await db.createTransaction();
+    try {
+      await tx.delete(new relationalStore.RdbPredicates('messages'));
+      await tx.delete(new relationalStore.RdbPredicates('sessions'));
+      await tx.commit();
+    } catch (err) {
+      try {
+        await tx.rollback();
+      } catch (e) {
+        // 回滚失败时保留原始错误
+      }
+      throw err as Error;
+    }
+    ChatDb.clearAttachmentCache();
   }
 
-  /** 会话摘要列表（updatedAt 倒序），不含消息 */
+  /** 收集会话内全部附件本地路径（供删除会话后清理缓存文件） */
+  private static async attachmentPathsOf(sessionId: string): Promise<string[]> {
+    if (ChatDb.store === undefined) {
+      return [];
+    }
+    const p = new relationalStore.RdbPredicates('messages');
+    p.equalTo('sessionId', sessionId).and().equalTo('role', 'user');
+    const rs = await ChatDb.store.query(p, ['payloadJson']);
+    const out: string[] = [];
+    try {
+      while (rs.goToNextRow()) {
+        try {
+          const obj: Record<string, Object> =
+            JSON.parse(rs.getString(rs.getColumnIndex('payloadJson'))) as Record<string, Object>;
+          const files = obj['files'];
+          if (!(files instanceof Array)) {
+            continue;
+          }
+          for (const fo of files as Array<Object>) {
+            const f = fo as Record<string, Object>;
+            const lp = f['localPath'];
+            if (typeof lp === 'string' && lp !== '') {
+              out.push(lp);
+            }
+          }
+        } catch (e) {
+          // 坏行跳过
+        }
+      }
+    } finally {
+      rs.close();
+    }
+    return out;
+  }
+
+  /** 逐个删除文件，已不存在属正常 */
+  private static removeFiles(paths: string[]): void {
+    for (const p of paths) {
+      try {
+        fs.unlinkSync(p);
+      } catch (e) {
+        // 忽略
+      }
+    }
+  }
+
+  /** 清空 cacheDir 下应用产生的附件缓存（att_ 与 cam_ 前缀） */
+  private static clearAttachmentCache(): void {
+    const dir = AppContextHolder.get().cacheDir;
+    try {
+      const names: string[] = fs.listFileSync(dir) as string[];
+      const stale: string[] = [];
+      for (const n of names) {
+        if (n.startsWith('att_') || n.startsWith('cam_')) {
+          stale.push(`${dir}/${n}`);
+        }
+      }
+      ChatDb.removeFiles(stale);
+    } catch (e) {
+      Logger.warn(TAG, `clear attachment cache failed: ${JSON.stringify(e)}`);
+    }
+  }
+
   /** 全部 assistant 消息 payloadJson（用量统计用） */
   static async assistantPayloads(): Promise<string[]> {
     if (ChatDb.store === undefined) {
@@ -149,32 +239,39 @@ export class ChatDb {
     p.equalTo('role', 'assistant');
     const rs = await ChatDb.store.query(p, ['payloadJson']);
     const out: string[] = [];
-    while (rs.goToNextRow()) {
-      out.push(rs.getString(rs.getColumnIndex('payloadJson')));
+    try {
+      while (rs.goToNextRow()) {
+        out.push(rs.getString(rs.getColumnIndex('payloadJson')));
+      }
+    } finally {
+      rs.close();
     }
-    rs.close();
     return out;
   }
 
+  /** 会话摘要列表（updatedAt 倒序），不含消息 */
   static async loadSessionList(): Promise<Session[]> {
     const db = ChatDb.db();
     const p = new relationalStore.RdbPredicates('sessions');
     p.orderByDesc('updatedAt');
     const rs = await db.query(p);
     const out: Session[] = [];
-    while (rs.goToNextRow()) {
-      const s = new Session(rs.getString(rs.getColumnIndex('id')), rs.getLong(rs.getColumnIndex('createdAt')));
-      s.title = rs.getString(rs.getColumnIndex('title'));
-      s.updatedAt = rs.getLong(rs.getColumnIndex('updatedAt'));
-      const root = rs.getString(rs.getColumnIndex('rootMessageId'));
-      s.rootMessageId = root === null || root === '' ? null : root;
-      const anchor = rs.getString(rs.getColumnIndex('compactAnchorId'));
-      s.compactAnchorId = anchor === null ? '' : anchor;
-      const summary = rs.getString(rs.getColumnIndex('compactSummary'));
-      s.compactSummary = summary === null ? '' : summary;
-      out.push(s);
+    try {
+      while (rs.goToNextRow()) {
+        const s = new Session(rs.getString(rs.getColumnIndex('id')), rs.getLong(rs.getColumnIndex('createdAt')));
+        s.title = rs.getString(rs.getColumnIndex('title'));
+        s.updatedAt = rs.getLong(rs.getColumnIndex('updatedAt'));
+        const root = rs.getString(rs.getColumnIndex('rootMessageId'));
+        s.rootMessageId = root === null || root === '' ? null : root;
+        const anchor = rs.getString(rs.getColumnIndex('compactAnchorId'));
+        s.compactAnchorId = anchor === null ? '' : anchor;
+        const summary = rs.getString(rs.getColumnIndex('compactSummary'));
+        s.compactSummary = summary === null ? '' : summary;
+        out.push(s);
+      }
+    } finally {
+      rs.close();
     }
-    rs.close();
     return out;
   }
 
@@ -185,30 +282,33 @@ export class ChatDb {
     p.equalTo('sessionId', sessionId).orderByAsc('seq');
     const rs = await db.query(p);
     const out: Message[] = [];
-    while (rs.goToNextRow()) {
-      const role = rs.getString(rs.getColumnIndex('role'));
-      const id = rs.getString(rs.getColumnIndex('id'));
-      const parentId = rs.getString(rs.getColumnIndex('parentId'));
-      const selectedChildId = rs.getString(rs.getColumnIndex('selectedChildId'));
-      const payload = rs.getString(rs.getColumnIndex('payloadJson'));
-      try {
-        const obj: Record<string, Object> = JSON.parse(payload) as Record<string, Object>;
-        if (role === 'user') {
-          const um = ChatDb.userFromJson(id, obj);
-          um.parentId = parentId === '' ? null : parentId;
-          um.selectedChildId = selectedChildId === '' ? null : selectedChildId;
-          out.push(um);
-        } else {
-          const am = ChatDb.assistantFromJson(id, obj);
-          am.parentId = parentId === '' ? null : parentId;
-          am.selectedChildId = selectedChildId === '' ? null : selectedChildId;
-          out.push(am);
+    try {
+      while (rs.goToNextRow()) {
+        const role = rs.getString(rs.getColumnIndex('role'));
+        const id = rs.getString(rs.getColumnIndex('id'));
+        const parentId = rs.getString(rs.getColumnIndex('parentId'));
+        const selectedChildId = rs.getString(rs.getColumnIndex('selectedChildId'));
+        const payload = rs.getString(rs.getColumnIndex('payloadJson'));
+        try {
+          const obj: Record<string, Object> = JSON.parse(payload) as Record<string, Object>;
+          if (role === 'user') {
+            const um = ChatDb.userFromJson(id, obj);
+            um.parentId = parentId === '' ? null : parentId;
+            um.selectedChildId = selectedChildId === '' ? null : selectedChildId;
+            out.push(um);
+          } else {
+            const am = ChatDb.assistantFromJson(id, obj);
+            am.parentId = parentId === '' ? null : parentId;
+            am.selectedChildId = selectedChildId === '' ? null : selectedChildId;
+            out.push(am);
+          }
+        } catch (e) {
+          Logger.warn(TAG, `skip broken message ${id}`);
         }
-      } catch (e) {
-        Logger.warn(TAG, `skip broken message ${id}`);
       }
+    } finally {
+      rs.close();
     }
-    rs.close();
     return out;
   }
 
@@ -337,6 +437,7 @@ export class ChatDb {
       }
     }
     const errObj: Record<string, Object> | null = m.error === null ? null : {
+      // status 无值写 0，读取端 `0 || undefined` 归一回 undefined（0/undefined 语义等价）
       'kind': m.error.kind, 'message': m.error.message, 'status': m.error.status ?? 0,
     };
     const obj: Record<string, Object> = {
