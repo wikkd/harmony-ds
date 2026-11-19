@@ -9,7 +9,7 @@ import { ReplyEngine } from '../service/chat/ReplyEngine';
 import { UserMessage, FileAttachment, AssistantMessage, isAssistant } from '../model/ChatTypes';
 import { ModelInfo } from '../model/ModelInfo';
 import { Id } from '../common/Format';
-import { AttachmentService } from '../service/attachments/AttachmentService';
+import { AttachmentService, AttachPickResult } from '../service/attachments/AttachmentService';
 
 /** 会话主视图（V2）：欢迎态 / 可见链消息列表 + 受控输入 */
 @ComponentV2
@@ -303,11 +303,20 @@ export struct ChatView {
     });
   }
 
-  /** 附件选择结果并入草稿 */
-  private attachFiles(pending: Promise<FileAttachment[]>): void {
-    pending.then((picked: FileAttachment[]) => {
-      for (const f of picked) {
+  /** 附件选择结果并入草稿；被拒文件给提示（类型/大小），不再静默吞掉 */
+  private attachFiles(pending: Promise<AttachPickResult>): void {
+    pending.then((picked: AttachPickResult) => {
+      for (const f of picked.files) {
         this.draftFiles.push(f);
+      }
+      if (picked.rejectedKey !== '') {
+        this.getUIContext().getPromptAction().showToast({
+          message: I18n.translate(picked.rejectedKey, {
+            'name': picked.rejectedName,
+            'limit': `${picked.rejectedLimit}`,
+          }),
+          duration: Motion.toastMid,
+        });
       }
     }).catch(() => {});
   }

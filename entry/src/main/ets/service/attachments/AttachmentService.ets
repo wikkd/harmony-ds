@@ -48,14 +48,16 @@ const MIME_BY_EXT: Map<string, string> = new Map([
   ['xml', 'text/xml'], ['yaml', 'text/yaml'], ['yml', 'text/yaml'],
   ['epub', 'application/epub+zip'],
 ]);
-/** 文档选择器过滤项（点号后缀） */
-const DOC_SUFFIX_FILTERS: string[] = [
-  '.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.csv', '.tsv',
-  '.txt', '.md', '.log', '.html', '.htm', '.json', '.xml', '.yaml', '.yml', '.toml', '.ini', '.conf',
-  '.ts', '.tsx', '.js', '.jsx', '.py', '.java', '.c', '.h', '.cpp', '.hpp', '.cs', '.go', '.rs',
-  '.swift', '.kt', '.rb', '.php', '.sh', '.bat', '.sql', '.vue', '.gradle', '.r', '.m', '.pl',
-  '.epub', '.mobi', '.eml', '.msg',
-];
+/** 选择结果：附件列表 + 首个被拒原因（UI 据此提示，避免选择/校验失败被静默吞掉） */
+export class AttachPickResult {
+  files: FileAttachment[] = [];
+  /** 被拒 i18n key：'' 表示无 */
+  rejectedKey: string = '';
+  /** 被拒文件名 */
+  rejectedName: string = '';
+  /** 大小上限 MB（attachOversize 时有效） */
+  rejectedLimit: number = 0;
+}
 
 /**
  * 附件服务：picker 选择 → 拷贝到应用沙箱 → 上传 Files API（purpose 判定）→ FileAttachment。
@@ -95,66 +97,69 @@ export class AttachmentService {
     return AttachmentService.purposeOf(name) === 'user_data' ? MAX_USER_DATA_MB : MAX_RICH_MB;
   }
 
-  /** 系统文件选择器（仅文档，不含图片） */
-  static async pickDocs(currentCount: number = 0): Promise<FileAttachment[]> {
+  /**
+   * 系统文件选择器（仅文档，不含图片）。不加 fileSuffixFilters 后缀过滤：官方约束口径暧昧
+   * （条目 ≤100 项 / 总长 ≤100 字符两种解读并存）且实机对部分后缀过滤不可靠，会导致
+   * 文件被隐藏或 select 失败——改为全量展示，选完按 ACCEPT_EXTS 白名单校验并提示。
+   */
+  static async pickDocs(currentCount: number = 0): Promise<AttachPickResult> {
     const context = AppContextHolder.get() as Context;
-    const out: FileAttachment[] = [];
-    const remaining = (): number => Math.max(0, MAX_COUNT - currentCount - out.length);
+    const result = new AttachPickResult();
+    const remaining = (): number => Math.max(0, MAX_COUNT - currentCount - result.files.length);
     try {
       const docPicker = new picker.DocumentViewPicker();
       const docOptions = new picker.DocumentSelectOptions();
       docOptions.maxSelectNumber = 9;
-      docOptions.fileSuffixFilters = DOC_SUFFIX_FILTERS;
       const uris = await docPicker.select(docOptions);
       for (const uri of uris) {
         if (remaining() <= 0) {
           break;
         }
-        const att = await AttachmentService.importUri(context, uri);
+        const att = await AttachmentService.importUri(context, uri, result);
         if (att !== null) {
-          out.push(att);
+          result.files.push(att);
         }
       }
     } catch (err) {
       Logger.warn(TAG, `doc pick failed: ${JSON.stringify(err)}`);
     }
-    return out;
+    return result;
   }
 
   /** 系统相册（仅图片） */
-  static async pickPhotos(currentCount: number = 0): Promise<FileAttachment[]> {
+  static async pickPhotos(currentCount: number = 0): Promise<AttachPickResult> {
     const context = AppContextHolder.get() as Context;
-    const out: FileAttachment[] = [];
-    const remaining = (): number => Math.max(0, MAX_COUNT - currentCount - out.length);
+    const pick = new AttachPickResult();
+    const remaining = (): number => Math.max(0, MAX_COUNT - currentCount - pick.files.length);
     try {
       const photoPicker = new photoAccessHelper.PhotoViewPicker();
       const photoOptions = new photoAccessHelper.PhotoSelectOptions();
       photoOptions.maxSelectNumber = 9;
       photoOptions.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
-      const result = await photoPicker.select(photoOptions);
-      if (result.photoUris !== undefined) {
-        for (const uri of result.photoUris) {
+      const selected = await photoPicker.select(photoOptions);
+      if (selected.photoUris !== undefined) {
+        for (const uri of selected.photoUris) {
           if (remaining() <= 0) {
             break;
           }
-          const att = await AttachmentService.importUri(context, uri);
+          const att = await AttachmentService.importUri(context, uri, pick);
           if (att !== null) {
-            out.push(att);
+            pick.files.push(att);
           }
         }
       }
     } catch (err) {
       Logger.warn(TAG, `photo pick failed: ${JSON.stringify(err)}`);
     }
-    return out;
+    return pick;
   }
 
   /** 系统相机拍照（CameraPicker，无需相机权限）；照片经沙箱临时文件导入后清理 */
-  static async capture(currentCount: number = 0): Promise<FileAttachment[]> {
+  static async capture(currentCount: number = 0): Promise<AttachPickResult> {
     const context = AppContextHolder.get() as Context;
-    const out: FileAttachment[] = [];
+    const pick = new AttachPickResult();
     if (currentCount >= MAX_COUNT) {
-      return out;
+      return pick;
     }
     const tmp = `${context.cacheDir}/cam_${Id.next()}.jpg`;
     try {
@@ -166,11 +171,11 @@ export class AttachmentService {
       };
       const result = await cameraPicker.pick(context, [cameraPicker.PickerMediaType.PHOTO], profile);
       if (result.resultCode !== 0 || result.resultUri === '') {
-        return out; // 取消或失败
+        return pick; // 取消或失败
       }
-      const att = await AttachmentService.importUri(context, result.resultUri);
+      const att = await AttachmentService.importUri(context, result.resultUri, pick);
       if (att !== null) {
-        out.push(att);
+        pick.files.push(att);
       }
     } catch (err) {
       Logger.warn(TAG, `camera pick failed: ${JSON.stringify(err)}`);
@@ -181,22 +186,31 @@ export class AttachmentService {
         // 忽略
       }
     }
-    return out;
+    return pick;
   }
 
-  /** 拷贝 picker uri 到沙箱并生成附件对象 */
-  static async importUri(context: Context, uri: string): Promise<FileAttachment | null> {
+  /** 拷贝 picker uri 到沙箱并生成附件对象；被拒文件记录首个原因供 UI 提示 */
+  static async importUri(context: Context, uri: string, pick: AttachPickResult): Promise<FileAttachment | null> {
     try {
       const file = fs.openSync(uri, fs.OpenMode.READ_ONLY);
       const stat = fs.statSync(file.fd);
       const displayName = AttachmentService.uriFileName(uri);
       if (!AttachmentService.isAccepted(displayName)) {
         Logger.warn(TAG, `unsupported ext: ${displayName}`);
+        if (pick.rejectedKey === '') {
+          pick.rejectedKey = 'attachUnsupported';
+          pick.rejectedName = displayName;
+        }
         fs.closeSync(file);
         return null;
       }
       if (stat.size > AttachmentService.maxSizeMb(displayName) * 1024 * 1024) {
         Logger.warn(TAG, `oversize: ${displayName} ${stat.size}`);
+        if (pick.rejectedKey === '') {
+          pick.rejectedKey = 'attachOversize';
+          pick.rejectedName = displayName;
+          pick.rejectedLimit = AttachmentService.maxSizeMb(displayName);
+        }
         fs.closeSync(file);
         return null;
       }
@@ -229,6 +243,13 @@ export class AttachmentService {
     }
     const slash = t.lastIndexOf('/');
     let name = slash >= 0 ? t.substring(slash + 1) : t;
+    if (name.indexOf('%') >= 0) {
+      try {
+        name = decodeURIComponent(name); // provider 可能对中文名做 URL 编码
+      } catch (e) {
+        // 编码异常保留原名
+      }
+    }
     if (name === '') {
       name = 'file';
     }

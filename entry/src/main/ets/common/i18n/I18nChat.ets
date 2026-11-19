@@ -43,6 +43,8 @@ export const ZH_CHAT: Record<string, string> = {
   'attachPhoto': '拍照',
   'attachAlbum': '相册',
   'attachFile': '文件',
+  'attachUnsupported': '不支持的文件类型：{name}',
+  'attachOversize': '文件过大（上限 {limit} MB）：{name}',
   'voiceInputTimer': '录音中 {seconds}s',
   'voiceInputCancel': '正在转写，点击取消',
 };
@@ -91,6 +93,8 @@ export const EN_CHAT: Record<string, string> = {
   'attachPhoto': 'Camera',
   'attachAlbum': 'Photos',
   'attachFile': 'Files',
+  'attachUnsupported': 'Unsupported file type: {name}',
+  'attachOversize': 'File too large (max {limit} MB): {name}',
   'voiceInputTimer': 'Recording {seconds}s',
   'voiceInputCancel': 'Transcribing. Tap to cancel',
 };
