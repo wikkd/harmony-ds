@@ -4,7 +4,6 @@ import { Dim, Motion } from '../../common/DesignTokens';
 import { KeyVault } from '../../prefs/KeyVault';
 import { AppContextHolder } from '../../common/AppContextHolder';
 import { SettingsStore } from '../../prefs/SettingsStore';
-import { VoiceButton } from './VoiceButton';
 import { FileAttachment } from '../../model/ChatTypes';
 import { ModelInfo } from '../../model/ModelInfo';
 import { Logger } from '../../common/Logger';
@@ -28,7 +27,6 @@ export struct ChatInput {
   /** 压缩会话（用量悬浮窗内触发） */
   @Param onCompact: () => void = () => {};
   settings: SettingsStore = SettingsStore.get();
-  @Local voiceActive: boolean = false;
   /** 附件面板（拍照/相册/文件）展开状态 */
   @Local attachPanelOpen: boolean = false;
   @Param files: FileAttachment[] = [];
@@ -354,20 +352,7 @@ export struct ChatInput {
   build() {
     Column({ space: 10 }) {
       Column() {
-        if (this.voiceActive) {
-          // 语音输入面板（替换面板内容）
-          VoiceButton({
-            onText: (text: string) => {
-              this.switchVoice(false);
-              this.onTextChange(text);
-            },
-            onDismiss: () => {
-              this.switchVoice(false);
-            },
-          })
-          .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 30 }))
-            .animation({ duration: Motion.animBase, curve: Curve.Smooth }))
-        } else if (this.settings.customModel) {
+        if (this.settings.customModel) {
           // 自定义模型：仅输入 + 发送（DeepSeek 专有工具不可用）
           if (this.editing) {
             this.editBar()
@@ -449,10 +434,6 @@ export struct ChatInput {
               this.stopCircle()
             } else if (this.canSend()) {
               this.sendCircle()
-            } else {
-              this.outlineCircle($r('app.media.ic_public_voice'), (): void => {
-                this.switchVoice(true);
-              })
             }
           }
           .width('100%')
@@ -471,7 +452,7 @@ export struct ChatInput {
       .backgroundColor($r('app.color.blur_input'))
       .shadow({ radius: 16, color: 'rgba(0,0,0,0.06)', offsetY: -4 })
 
-      if (this.attachPanelOpen && !this.voiceActive) {
+      if (this.attachPanelOpen) {
         this.attachPanel()
       }
     }
@@ -490,14 +471,6 @@ export struct ChatInput {
     }
     this.getUIContext().animateTo({ duration: Motion.animFast, curve: Curve.Smooth }, () => {
       this.attachPanelOpen = next;
-    });
-  }
-
-  /** 语音面板开关（含进出场动画作用域） */
-  private switchVoice(on: boolean): void {
-    this.getUIContext().animateTo({ duration: Motion.animBase, curve: Curve.Smooth }, () => {
-      this.attachPanelOpen = false;
-      this.voiceActive = on;
     });
   }
 

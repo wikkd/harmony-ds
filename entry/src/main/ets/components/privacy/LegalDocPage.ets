@@ -31,6 +31,24 @@ export function buildAgreementSections(): LegalSection[] {
   return out;
 }
 
+/** AI 服务信息 3 节词条（服务说明/备案信息/生成内容标识） */
+export function buildAiInfoSections(): LegalSection[] {
+  const out: LegalSection[] = [];
+  for (let i = 1; i <= 3; i++) {
+    out.push(new LegalSection(`aiInfoSection${i}Title`, `aiInfoSection${i}Body`));
+  }
+  return out;
+}
+
+/** 投诉与举报 2 节词条（举报渠道/处理说明） */
+export function buildReportSections(): LegalSection[] {
+  const out: LegalSection[] = [];
+  for (let i = 1; i <= 2; i++) {
+    out.push(new LegalSection(`reportSection${i}Title`, `reportSection${i}Body`));
+  }
+  return out;
+}
+
 /** 法务文档页（隐私政策/用户协议共用骨架：滚动章节列表） */
 @ComponentV2
 export struct LegalDocPage {

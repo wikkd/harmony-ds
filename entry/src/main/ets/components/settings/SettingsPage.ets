@@ -323,6 +323,16 @@ export struct SettingsPage {
                   icon: $r('app.media.ic_public_upgrade'),
                   value: '1.0.0',
                 })
+                // 生成式 AI 合规：备案信息公示 + 投诉举报入口（审核指南 12.17）
+                SettingRow({
+                  label: I18n.translate('aiServiceInfoTitle'),
+                  icon: $r('app.media.ic_public_help'),
+                  showArrow: true,
+                  tappable: true,
+                  onRowTap: (): void => {
+                    this.pathStack.pushPathByName('aiinfo', null);
+                  },
+                })
                 SettingRow({
                   label: I18n.translate('userAgreementTitle'),
                   icon: $r('app.media.ic_public_text'),
@@ -339,6 +349,15 @@ export struct SettingsPage {
                   tappable: true,
                   onRowTap: (): void => {
                     this.pathStack.pushPathByName('privacy', null);
+                  },
+                })
+                SettingRow({
+                  label: I18n.translate('reportAbuseTitle'),
+                  icon: $r('app.media.ic_public_comments'),
+                  showArrow: true,
+                  tappable: true,
+                  onRowTap: (): void => {
+                    this.pathStack.pushPathByName('report', null);
                   },
                 })
               }

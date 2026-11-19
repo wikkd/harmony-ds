@@ -3,7 +3,7 @@ import { common } from '@kit.AbilityKit';
 import { I18n } from '../common/I18n';
 import { SettingsStore } from '../prefs/SettingsStore';
 import { Dim, Motion } from '../common/DesignTokens';
-import { LegalDocPage, buildPrivacySections, buildAgreementSections } from '../components/privacy/LegalDocPage';
+import { LegalDocPage, buildPrivacySections, buildAgreementSections, buildAiInfoSections, buildReportSections } from '../components/privacy/LegalDocPage';
 import { SettingsPage } from '../components/settings/SettingsPage';
 import { ModelConfigPage } from '../components/settings/ModelConfigPage';
 import { DataManagePage } from '../components/settings/DataManagePage';
@@ -92,6 +92,10 @@ struct Index {
       LegalDocPage({ titleKey: 'privacyPolicyTitle', sections: buildPrivacySections() })
     } else if (name === 'agreement') {
       LegalDocPage({ titleKey: 'userAgreementTitle', sections: buildAgreementSections() })
+    } else if (name === 'aiinfo') {
+      LegalDocPage({ titleKey: 'aiServiceInfoTitle', sections: buildAiInfoSections() })
+    } else if (name === 'report') {
+      LegalDocPage({ titleKey: 'reportAbuseTitle', sections: buildReportSections() })
     } else if (name === 'settings') {
       SettingsPage({ pathStack: this.pathStack })
     } else if (name === 'usage') {

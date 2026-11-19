@@ -246,16 +246,21 @@ export struct AssistantBody {
         .width('100%')
       }
 
-      // 操作行：复制 / 朗读 / 重新生成
+      // 操作行：AI 内容显式标识（左）+ 复制 / 朗读 / 重新生成（右）
       if (this.message.status === 'done' || this.message.status === 'stopped') {
         Row({ space: 14 }) {
+          Text(I18n.translate('aiGeneratedLabel'))
+            .fontSize(Fonts.caption())
+            .fontColor($r('app.color.text_tertiary'))
+            .layoutWeight(1)
           Image($r('app.media.ic_public_copy'))
             .width(16)
             .height(16)
             .fillColor($r('app.color.text_tertiary'))
             .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.85 })
             .onClick(() => {
-              copyToClipboard(replyTextOf(this.message)).then(() => {
+              // 生成合成内容标识：复制文本附带显式标识（标识办法要求导出/复制可感知）
+              copyToClipboard(replyTextOf(this.message) + I18n.translate('aiGeneratedCopySuffix')).then(() => {
                 this.getUIContext().getPromptAction()
                   .showToast({ message: I18n.translate('copied'), duration: Motion.toastShort });
               }).catch((err: object) => {
