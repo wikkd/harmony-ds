@@ -58,6 +58,16 @@ export struct MessageList {
     }
   }
 
+  /**
+   * 列表顶部内边距：让出悬浮头部（抽屉钮/状态胶囊）的高度。
+   * 头部 Row = 12vp 边距 + 控件内部再让 safeTop，高约 44vp；
+   * 不让位时滚动到顶，首条消息会钻进胶囊后面（手机端实测遮挡过半）。
+   * 列表因 expandSafeArea 以屏幕顶为原点，故需显式加回 safeTop。
+   */
+  private topPad(): number {
+    return (AppStorage.get<number>('safeTopVp') ?? 0) + 62;
+  }
+
   /** 依据当前滚动位置刷新定位滑块 */
   private refreshLocate(): void {
     if (this.thumbHolding) {
@@ -105,7 +115,7 @@ export struct MessageList {
       }
       .width('100%')
       .height('100%')
-      .padding({ left: Dim.pagePadding, right: Dim.pagePadding, top: 12, bottom: this.bottomPad })
+      .padding({ left: Dim.pagePadding, right: Dim.pagePadding, top: this.topPad(), bottom: this.bottomPad })
       .scrollBar(BarState.Off)
       .edgeEffect(EdgeEffect.Spring)
       .onDidScroll(() => {
