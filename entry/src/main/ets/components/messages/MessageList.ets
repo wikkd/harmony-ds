@@ -42,6 +42,35 @@ export struct MessageList {
   private viewportH: number = 0;
   private thumbHolding: boolean = false;
   private thumbDragBase: number = 0;
+  /** 粘底跟随：流式增量/结构变化自动滚到最新内容；用户上滚（距底 >100vp）解除，回底（≤40vp）恢复 */
+  @Local followBottom: boolean = true;
+  private lastFollowAt: number = 0;
+  private jumpedInitial: boolean = false;
+
+  /** 会话切换→落底；可见链变化→跟随中贴底（V2 无 @Watch，用 @Monitor 监听 @Param 重指派） */
+  @Monitor('session', 'visible')
+  onStateSwap(monitor: IMonitor): void {
+    if (monitor.dirty.includes('session')) {
+      this.onSessionSwap();
+    }
+    if (monitor.dirty.includes('visible')) {
+      this.onVisibleSwap();
+    }
+  }
+
+  aboutToAppear(): void {
+    this.store.onStreamTick = (): void => this.followTick();
+    this.store.onMessageAppended = (): void => this.jumpFollow();
+  }
+
+  aboutToDisappear(): void {
+    if (this.store.onStreamTick !== null) {
+      this.store.onStreamTick = null;
+    }
+    if (this.store.onMessageAppended !== null) {
+      this.store.onMessageAppended = null;
+    }
+  }
 
   /** 列表最大可滚动距离（vp）：末项底边 + 当前偏移 - 视口高 */
   private maxScrollOffset(): number {
@@ -87,6 +116,78 @@ export struct MessageList {
     this.locateThumbY = pad + (max > 0 ? cur / max : 0) * (track - th);
   }
 
+  /** 滚到列表底部：scrollTo 到末项底边（scrollEdge 的 ScrollEdgeOptions 无动画开关） */
+  private scrollToBottom(animated: boolean): void {
+    const n = this.visible.length;
+    if (n === 0 || this.viewportH <= 0) {
+      this.scroller.scrollEdge(Edge.Bottom);
+      return;
+    }
+    try {
+      const last = this.scroller.getItemRect(n - 1);
+      const cur = this.scroller.currentOffset().yOffset;
+      const max = Math.max(last.y + last.height + cur - this.viewportH, 0);
+      this.scroller.scrollTo({ xOffset: 0, yOffset: max, animation: animated });
+    } catch (e) {
+      this.scroller.scrollEdge(Edge.Bottom); // 末项尚未布局：默认行为兜底
+    }
+  }
+
+  /** 用户上滚判定：距底 >100vp 解除跟随，≤40vp 恢复（迟滞防边界抖动） */
+  private syncFollow(): void {
+    const max = this.maxScrollOffset();
+    if (max <= 0) {
+      return; // 内容未溢出或末项尚未布局：不判定
+    }
+    const dist = max - this.scroller.currentOffset().yOffset;
+    if (this.followBottom && dist > 100) {
+      this.followBottom = false;
+    } else if (!this.followBottom && dist <= 40) {
+      this.followBottom = true;
+    }
+  }
+
+  /** 粘底跟随：节流 200ms，免逐 delta 滚动抖动 */
+  private followTick(): void {
+    if (!this.followBottom || this.thumbHolding) {
+      return;
+    }
+    const now = Date.now();
+    if (now - this.lastFollowAt < 200) {
+      return;
+    }
+    this.lastFollowAt = now;
+    this.scrollToBottom(false);
+  }
+
+  /** 新消息入链（发送/重发）：强制恢复跟随并动画跳底——用户在半途阅读也回到最新 */
+  private jumpFollow(): void {
+    if (this.thumbHolding) {
+      return;
+    }
+    this.followBottom = true;
+    // 延后一拍：等新消息排进布局再滚，才能落到位
+    setTimeout((): void => {
+      if (this.followBottom) {
+        this.lastFollowAt = Date.now();
+        this.scrollToBottom(true);
+      }
+    }, 0);
+  }
+
+  /** 会话切换：按官方行为落到最新消息（无动画直落） */
+  private onSessionSwap(): void {
+    this.followBottom = true;
+    setTimeout((): void => {
+      this.scrollToBottom(false);
+    }, 0);
+  }
+
+  /** 可见链变化（入链/收尾/分支切换）：跟随中则贴住底部，阅读中不打扰 */
+  private onVisibleSwap(): void {
+    this.followTick();
+  }
+
   build() {
     Stack({ alignContent: Alignment.TopEnd }) {
       List({ scroller: this.scroller, space: 12 }) {
@@ -119,11 +220,19 @@ export struct MessageList {
       .scrollBar(BarState.Off)
       .edgeEffect(EdgeEffect.Spring)
       .onDidScroll(() => {
+        this.syncFollow();
         this.refreshLocate();
       })
       .onAreaChange((_o: Area, nv: Area) => {
         this.viewportH = Number(nv.height);
         this.refreshLocate();
+        // 首次布局落底：打开会话即最新消息（对齐官方），之后仅靠会话切换驱动
+        if (!this.jumpedInitial) {
+          this.jumpedInitial = true;
+          setTimeout((): void => {
+            this.scrollToBottom(false);
+          }, 0);
+        }
       })
 
       // 快速定位条：拖动滑块按比例跳转消息位置（仅内容可滚动时出现）
@@ -160,6 +269,44 @@ export struct MessageList {
             this.thumbHolding = false;
           })
         )
+      }
+
+      // 回到底部：跟随被用户上滚解除后出现（官方同款右下圆钮，悬浮在输入面板上方）
+      if (!this.followBottom && this.locateOn) {
+        Column() {
+          Column() {
+            Image($r('app.media.ic_public_arrow_up_0'))
+              .width(18)
+              .height(18)
+              .fillColor($r('app.color.text_secondary'))
+              .rotate({ angle: 180 })
+          }
+          .width(36)
+          .height(36)
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
+          .borderRadius(18)
+          .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+          .stateStyles({
+            pressed: {
+              .backgroundColor($r('app.color.interactive_pressed'))
+            },
+          })
+          .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.92 })
+          .onClick(() => {
+            this.followBottom = true;
+            this.lastFollowAt = Date.now();
+            this.scrollToBottom(true);
+          })
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.End)
+        .alignItems(HorizontalAlign.End)
+        .padding({ right: 12, bottom: this.bottomPad + 8 })
+        .hitTestBehavior(HitTestMode.None)
+        .transition(TransitionEffect.OPACITY.combine(TransitionEffect.scale({ x: 0.9, y: 0.9 }))
+          .animation({ duration: Motion.animBase, curve: Motion.curveIn }))
       }
 
       // 全屏图片预览层（树内覆盖，点击任意处关闭）

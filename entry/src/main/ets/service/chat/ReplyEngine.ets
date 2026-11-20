@@ -124,6 +124,7 @@ export class ReplyEngine {
     userMsg.files = files;
     const reply = store.appendAssistantPlaceholder(session, userMsg.id, settings.thinking, settings.search);
     store.refreshVisible(session);
+    store.notifyMessageAppended(); // 发送即跳底：用户在半途阅读也回到最新
     store.setStreaming(sessionId);
     ReplyEngine.pending.set(sessionId, { sessionId, assistantId: reply.id, question });
     // 持久化提问与占位回复（失败不能卡死流式态：清理后以本地错误收尾）
@@ -248,6 +249,7 @@ export class ReplyEngine {
     }
     const reply = store.appendAssistantPlaceholder(session, userMsgId, settings.thinking, settings.search);
     store.refreshVisible(session);
+    store.notifyMessageAppended(); // 重新生成同样跳底
     store.setStreaming(sessionId);
     ReplyEngine.pending.set(sessionId, { sessionId, assistantId: reply.id, question });
     try {
@@ -498,6 +500,7 @@ export class ReplyEngine {
       }
       indexes.set(event.index, reply.blocks.length);
       reply.blocks.push(rb);
+      store.notifyStreamTick(); // 新块入列：列表跟随最新内容
       return;
     }
     if (event.type === 'content_block_delta') {
@@ -518,6 +521,7 @@ export class ReplyEngine {
       } else if (block.type === 'text' && event.deltaCitation !== null && event.deltaCitation !== undefined) {
         block.textPart.citations.push(event.deltaCitation);
       }
+      store.notifyStreamTick(); // 内容增长：列表粘底跟随
       return;
     }
     if (event.type === 'content_block_stop') {

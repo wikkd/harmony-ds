@@ -63,6 +63,22 @@ export class ChatStore {
   onStreamingEnd: (() => void) | null = null;
   /** 中止在途流请求的注入点（ReplyEngine 注册，避免 Store 反向依赖 Engine） */
   onAbortStream: ((sessionId: string) => void) | null = null;
+  /** 流式内容增长信号（delta/新块/结构变化）：消息列表粘底跟随用，节流由订阅方做 */
+  onStreamTick: (() => void) | null = null;
+  /** 新消息入链信号（发送/重发占位）：列表强制跳底（解除用户上滚的阅读位置） */
+  onMessageAppended: (() => void) | null = null;
+
+  notifyStreamTick(): void {
+    if (this.onStreamTick !== null) {
+      this.onStreamTick();
+    }
+  }
+
+  notifyMessageAppended(): void {
+    if (this.onMessageAppended !== null) {
+      this.onMessageAppended();
+    }
+  }
 
   setStreaming(id: string | null): void {
     this.streamingSessionId = id;
@@ -276,10 +292,11 @@ export class ChatStore {
     this.visible = out;
   }
 
-  /** 同态刷新：追加消息后调用（轻量重算 + 版本自增） */
+  /** 同态刷新：追加消息后调用（轻量重算 + 版本自增）；结构变化同样驱动列表跟随 */
   refreshVisible(session: Session): void {
     this.recomputeVisible(session);
     this.visibleVersion++;
+    this.notifyStreamTick();
   }
 
   /** 兄弟节点（同 parentId 的消息），用于版本切换计数 */
