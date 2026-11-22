@@ -13,12 +13,13 @@ set HDC=D:\Program Files\Huawei\DevEco Studio\sdk\default\openharmony\toolchains
 if not exist "%HDC%" set HDC=hdc
 set BUNDLE=com.harmonyds.chat
 set TEST_HAP=entry\build\default\outputs\ohosTest\entry-ohosTest-signed.hap
-if not exist "%TEST_HAP%" set TEST_HAP=entry\build\default\outputs\ohosTest\entry-ohosTest-default-signed.hap
 cd /d "%~dp0.."
 
 echo [1/4] building ohosTest hap...
 "%NODE%" "%HVIGOR%" --mode module -p module=entry@ohosTest assembleHap --no-daemon
 if errorlevel 1 goto :fail
+REM fallback check must run AFTER the build: on a clean tree the hap does not exist yet
+if not exist "%TEST_HAP%" set TEST_HAP=entry\build\default\outputs\ohosTest\entry-ohosTest-default-signed.hap
 
 echo [2/4] installing test hap (app data kept)...
 "%HDC%" install -r %TEST_HAP%
@@ -26,9 +27,9 @@ if errorlevel 1 goto :fail
 
 echo [3/4] running hypium suite...
 if "%~1"=="" (
-  "%HDC%" shell aa test -b %BUNDLE% -m entry -s unittest OpenHarmonyTestRunner -s timeout 15000
+  "%HDC%" shell aa test -b %BUNDLE% -m entry_test -s unittest OpenHarmonyTestRunner -s timeout 15000
 ) else (
-  "%HDC%" shell aa test -b %BUNDLE% -m entry -s unittest OpenHarmonyTestRunner -s class %~1 -s timeout 15000
+  "%HDC%" shell aa test -b %BUNDLE% -m entry_test -s unittest OpenHarmonyTestRunner -s class %~1 -s timeout 15000
 )
 
 echo [4/4] restoring normal hap...

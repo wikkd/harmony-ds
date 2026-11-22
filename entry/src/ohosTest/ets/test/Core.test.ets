@@ -29,8 +29,12 @@ export default function coreTests(): void {
       expect(events.length === 0).assertTrue();
       events = d.push('data: {"b":2}\r');
       expect(events.length === 0).assertTrue();
+      // 结尾孤立 CR 缓冲，后续 LF 补齐 CRLF 成完整一行（仍未派发，需空行）
+      events = d.push('\n');
+      expect(events.length === 0).assertTrue();
       events = d.push('\n');
       expect(events.length === 1).assertTrue();
+      expect(events[0].data === '{"b":2}').assertTrue();
     });
     it('multi-line data joined with newline', 0, () => {
       const d = new ServerSentEventDecoder();
