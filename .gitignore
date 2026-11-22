@@ -11,7 +11,12 @@
 **/.test
 /.appanalyzer
 /.design
-/scripts/*.log/.zcode
+/scripts/*.log
+/.zcode
+
+# 工具状态目录
+/.cache/
+/.deveco/
 
 # 图标生成临时产物
 /scripts/_bg
