@@ -132,6 +132,36 @@ export class TestHarness {
       await store.switchTo(session2.id);
       Logger.info(TAG, `injected img: ${imgPath}`);
       return;
+    } else if (scene === 'long') {
+      // 滚动/毛玻璃验证：多轮长文本，列表足够高，底部位置时顶部悬浮按钮正下方是正文文字
+      // 链式注入：每轮 parentId 指向上一轮回复，形成单链（visible 链=全部 24 条）；
+      // 传 null 会生成 12 个根级兄弟分支，可见链只剩最后一个分支（2 条）
+      let prevId: string | null = null;
+      for (let i = 1; i <= 12; i++) {
+        const q = store.appendUserMessage(session,
+          `第${i}条提问：这是一段用于滚动与毛玻璃效果验证的用户消息文本，长度足够换行。`, prevId);
+        const r = store.appendAssistantPlaceholder(session, q.id, false, false);
+        const b = new ReplyBlock();
+        b.type = 'text';
+        b.textPart.text = `第${i}条回复：这是一段较长的回复正文，用于让列表足够高，`
+          + '可以把文字滚动到顶部悬浮按钮正下方，验证毛玻璃模糊是否真实渲染。';
+        r.blocks.push(b);
+        r.status = 'done';
+        r.model = 'deepseek-flash';
+        r.stopReason = 'end_turn';
+        const u = new MessageUsage();
+        u.inputTokens = 10;
+        u.outputTokens = 60;
+        r.usage = u;
+        await store.persistMessage(session, q);
+        await store.persistMessage(session, r);
+        prevId = r.id;
+      }
+      session.title = '注入测试·long';
+      await store.renameSession(session.id, session.title);
+      await store.switchTo(session.id);
+      Logger.info(TAG, 'injected long: 12 rounds for scroll/blur verification');
+      return;
     } else {
       Logger.warn(TAG, `unknown scene: ${scene}`);
       return;

@@ -93,6 +93,8 @@ export class ProtocolBlock {
   serverToolUse: ProtocolServerToolUse = new ProtocolServerToolUse();
   searchResult: ProtocolSearchResultBlock = new ProtocolSearchResultBlock();
   fetchResult: ProtocolFetchResultBlock = new ProtocolFetchResultBlock();
+  /** 服务端工具结果块的原始 JSON，历史回传时原样发送 */
+  rawJson: string = '';
   /** tool_use（客户端工具）：不展示内容，仅用于关闭续写 */
   isToolUse: boolean = false;
 }

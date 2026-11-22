@@ -42,6 +42,14 @@ export struct MessageList {
   private viewportH: number = 0;
   private thumbHolding: boolean = false;
   private thumbDragBase: number = 0;
+  /** 最近一次有效最大偏移：末项离屏时滑块换算的退化依据（内容未变则仍准确） */
+  private lastKnownMax: number = 0;
+  /** 节流尾沿已排队：保证流式最后一批增量也能补滚一次 */
+  private trailScheduled: boolean = false;
+  /** 程序化动画滚动进行中：跳过跟随判定，防飞行途中 dist>100 误解除（触摸打断即清除） */
+  private animating: boolean = false;
+  /** 会话切换补滚定时器（重复切换先清旧拍） */
+  private landTimer: number = -1;
   /** 粘底跟随：流式增量/结构变化自动滚到最新内容；用户上滚（距底 >100vp）解除，回底（≤40vp）恢复 */
   @Local followBottom: boolean = true;
   private lastFollowAt: number = 0;
@@ -70,31 +78,49 @@ export struct MessageList {
     if (this.store.onMessageAppended !== null) {
       this.store.onMessageAppended = null;
     }
-  }
-
-  /** 列表最大可滚动距离（vp）：末项底边 + 当前偏移 - 视口高 */
-  private maxScrollOffset(): number {
-    const n = this.visible.length;
-    if (n === 0 || this.viewportH <= 0) {
-      return 0;
-    }
-    try {
-      const last = this.scroller.getItemRect(n - 1);
-      const cur = this.scroller.currentOffset().yOffset;
-      return Math.max(last.y + last.height + cur - this.viewportH, 0);
-    } catch (e) {
-      return 0;
+    if (this.landTimer >= 0) {
+      clearTimeout(this.landTimer);
+      this.landTimer = -1;
     }
   }
 
   /**
-   * 列表顶部内边距：让出悬浮头部（抽屉钮/状态胶囊）的高度。
-   * 头部 Row = 12vp 边距 + 控件内部再让 safeTop，高约 44vp；
-   * 不让位时滚动到顶，首条消息会钻进胶囊后面（手机端实测遮挡过半）。
-   * 列表因 expandSafeArea 以屏幕顶为原点，故需显式加回 safeTop。
+   * 列表最大可滚动距离（vp）：末项底边 + 底部留白 + 当前偏移 - 视口高。
+   * 末项离屏/未布局（getItemRect 全 0 或抛异常）返回 -1，不用假值判定；
+   * 有效时顺带记录 lastKnownMax 供滑块换算退化使用。
+   */
+  private computeMax(): number {
+    const n = this.visible.length;
+    if (n === 0 || this.viewportH <= 0) {
+      return -1;
+    }
+    try {
+      const last = this.scroller.getItemRect(n - 1);
+      if (last.height <= 0) {
+        return -1;
+      }
+      const cur = this.scroller.currentOffset().yOffset;
+      const max = Math.max(last.y + last.height + cur - this.viewportH + this.bottomPad, 0);
+      this.lastKnownMax = max;
+      return max;
+    } catch (e) {
+      return -1;
+    }
+  }
+
+  /** 换算用最大偏移：末项离屏时退回最近一次有效值（内容未变仍准确） */
+  private effectiveMax(): number {
+    const m = this.computeMax();
+    return m >= 0 ? m : this.lastKnownMax;
+  }
+
+  /**
+   * 列表顶部内边距：会话区以屏幕顶为上边界（沉浸式），
+   * 内容只让出状态栏 + 8vp；悬浮按钮（毛玻璃）浮在内容之上，
+   * 文字从其下方滚过时被半透明毛玻璃模糊。
    */
   private topPad(): number {
-    return (AppStorage.get<number>('safeTopVp') ?? 0) + 62;
+    return (AppStorage.get<number>('safeTopVp') ?? 0) + 8;
   }
 
   /** 依据当前滚动位置刷新定位滑块 */
@@ -103,7 +129,7 @@ export struct MessageList {
       return;
     }
     const vh = this.viewportH;
-    const max = this.maxScrollOffset();
+    const max = this.effectiveMax();
     this.locateOn = max > 24;
     if (!this.locateOn || vh <= 0) {
       return;
@@ -116,28 +142,41 @@ export struct MessageList {
     this.locateThumbY = pad + (max > 0 ? cur / max : 0) * (track - th);
   }
 
-  /** 滚到列表底部：scrollTo 到末项底边（scrollEdge 的 ScrollEdgeOptions 无动画开关） */
+  /** 滚到列表真底（含底部留白，末条完整露出输入面板）；末项未布局时 scrollEdge 兜底 */
   private scrollToBottom(animated: boolean): void {
     const n = this.visible.length;
     if (n === 0 || this.viewportH <= 0) {
       this.scroller.scrollEdge(Edge.Bottom);
       return;
     }
+    if (animated) {
+      this.animating = true;
+      setTimeout((): void => {
+        this.animating = false;
+      }, Motion.animBase + 80);
+    }
     try {
       const last = this.scroller.getItemRect(n - 1);
+      if (last.height <= 0) {
+        this.scroller.scrollEdge(Edge.Bottom); // 末项尚未布局/已离屏：边缘兜底
+        return;
+      }
       const cur = this.scroller.currentOffset().yOffset;
-      const max = Math.max(last.y + last.height + cur - this.viewportH, 0);
+      const max = Math.max(last.y + last.height + cur - this.viewportH + this.bottomPad, 0);
       this.scroller.scrollTo({ xOffset: 0, yOffset: max, animation: animated });
     } catch (e) {
       this.scroller.scrollEdge(Edge.Bottom); // 末项尚未布局：默认行为兜底
     }
   }
 
-  /** 用户上滚判定：距底 >100vp 解除跟随，≤40vp 恢复（迟滞防边界抖动） */
+  /** 用户上滚判定：距底 >100vp 解除跟随，≤40vp 恢复（迟滞防边界抖动）；动画滚动/末项离屏不判定 */
   private syncFollow(): void {
-    const max = this.maxScrollOffset();
+    if (this.animating) {
+      return;
+    }
+    const max = this.computeMax();
     if (max <= 0) {
-      return; // 内容未溢出或末项尚未布局：不判定
+      return; // 末项离屏(-1)、未布局或内容未溢出：不判定
     }
     const dist = max - this.scroller.currentOffset().yOffset;
     if (this.followBottom && dist > 100) {
@@ -147,14 +186,25 @@ export struct MessageList {
     }
   }
 
-  /** 粘底跟随：节流 200ms，免逐 delta 滚动抖动 */
+  /** 粘底跟随：leading+trailing 节流 200ms；末项离屏不跟滚（防 scrollEdge 兜底拽回阅读中的用户） */
   private followTick(): void {
     if (!this.followBottom || this.thumbHolding) {
       return;
     }
     const now = Date.now();
-    if (now - this.lastFollowAt < 200) {
+    const since = now - this.lastFollowAt;
+    if (since < Motion.animBase) {
+      if (!this.trailScheduled) {
+        this.trailScheduled = true;
+        setTimeout((): void => {
+          this.trailScheduled = false;
+          this.followTick();
+        }, Motion.animBase - since);
+      }
       return;
+    }
+    if (this.computeMax() < 0) {
+      return; // 末项离屏/未布局：无法换算，不滚
     }
     this.lastFollowAt = now;
     this.scrollToBottom(false);
@@ -175,12 +225,27 @@ export struct MessageList {
     }, 0);
   }
 
-  /** 会话切换：按官方行为落到最新消息（无动画直落） */
+  /** 会话切换：按官方行为落到最新消息（无动画直落）。新内容布局异步就绪，分拍补滚确保落到真底 */
   private onSessionSwap(): void {
     this.followBottom = true;
-    setTimeout((): void => {
+    if (this.landTimer >= 0) {
+      clearTimeout(this.landTimer);
+    }
+    this.landBottom(0);
+  }
+
+  /** 补滚落底：约 80ms 一拍、最多 5 拍；用户主动上滚即停，重复切会话取最后一次 */
+  private landBottom(attempt: number): void {
+    this.landTimer = setTimeout((): void => {
+      this.landTimer = -1;
+      if (!this.followBottom) {
+        return;
+      }
       this.scrollToBottom(false);
-    }, 0);
+      if (attempt < 4) {
+        this.landBottom(attempt + 1);
+      }
+    }, 80);
   }
 
   /** 可见链变化（入链/收尾/分支切换）：跟随中则贴住底部，阅读中不打扰 */
@@ -223,6 +288,12 @@ export struct MessageList {
         this.syncFollow();
         this.refreshLocate();
       })
+      .onTouch((e: TouchEvent) => {
+        // 用户触摸打断动画滚动：立即恢复跟随判定
+        if (e.type === TouchType.Down && this.animating) {
+          this.animating = false;
+        }
+      })
       .onAreaChange((_o: Area, nv: Area) => {
         this.viewportH = Number(nv.height);
         this.refreshLocate();
@@ -260,7 +331,7 @@ export struct MessageList {
             if (track <= 0) {
               return;
             }
-            const max = this.maxScrollOffset();
+            const max = this.effectiveMax();
             const ny = Math.min(Math.max(this.thumbDragBase + e.offsetY, pad), pad + track);
             this.locateThumbY = ny;
             this.scroller.scrollTo({ xOffset: 0, yOffset: (ny - pad) / track * max, animation: false });
@@ -271,7 +342,7 @@ export struct MessageList {
         )
       }
 
-      // 回到底部：跟随被用户上滚解除后出现（官方同款右下圆钮，悬浮在输入面板上方）
+      // 回到底部：跟随被用户上滚解除后出现（居中圆钮，悬浮在输入面板上方）
       if (!this.followBottom && this.locateOn) {
         Column() {
           Column() {
@@ -302,8 +373,8 @@ export struct MessageList {
         .width('100%')
         .height('100%')
         .justifyContent(FlexAlign.End)
-        .alignItems(HorizontalAlign.End)
-        .padding({ right: 12, bottom: this.bottomPad + 8 })
+        .alignItems(HorizontalAlign.Center)
+        .padding({ bottom: this.bottomPad + 8 })
         .hitTestBehavior(HitTestMode.None)
         .transition(TransitionEffect.OPACITY.combine(TransitionEffect.scale({ x: 0.9, y: 0.9 }))
           .animation({ duration: Motion.animBase, curve: Motion.curveIn }))
@@ -443,14 +514,33 @@ export struct MessageList {
   assistantRow(m: AssistantMessage) {
     Column({ space: 6 }) {
       this.branchSwitcher(m)
-      AssistantBody({ message: m, onRegenerate: (): void => {
-        if (!this.isLocked(m)) {
-          this.regenerate(m);
-        }
-      } })
+      AssistantBody({
+        message: m,
+        isLast: this.isLastVisible(m),
+        onRegenerate: (): void => {
+          if (!this.isLocked(m)) {
+            this.regenerate(m);
+          }
+        },
+        onContinue: (): void => {
+          if (!this.isLocked(m)) {
+            ReplyEngine.continueReply(this.session.id, m.id);
+          }
+        },
+        onRetryUpload: (): void => {
+          if (!this.isLocked(m)) {
+            ReplyEngine.retryUpload(this.session.id, m.id);
+          }
+        },
+      })
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
+  }
+
+  private isLastVisible(m: Message): boolean {
+    const n = this.visible.length;
+    return n > 0 && this.visible[n - 1].id === m.id;
   }
 
   @Builder

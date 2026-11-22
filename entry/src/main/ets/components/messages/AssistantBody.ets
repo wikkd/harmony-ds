@@ -13,6 +13,7 @@ import { TtsPlayer } from '../../service/speech/TtsPlayer';
 import { KeyVault } from '../../prefs/KeyVault';
 import { SettingsStore } from '../../prefs/SettingsStore';
 import { ApiError } from '../../model/ApiError';
+import { RequestBodyBuilder } from '../../service/chat/RequestBodyBuilder';
 
 /** 全局唯一 TTS 播放器（新朗读会停止旧的） */
 class TtsActive {
@@ -72,6 +73,10 @@ function openLink(context: Context, url: string): void {
 export struct AssistantBody {
   @Param message: AssistantMessage = new AssistantMessage('0', 0);
   @Param onRegenerate: () => void = () => {};
+  /** 是否为可见链最后一条（续写按钮只在末条显示） */
+  @Param isLast: boolean = false;
+  @Param onContinue: () => void = () => {};
+  @Param onRetryUpload: () => void = () => {};
   @Local thinkingOpen: boolean = false;
   @Local ttsPlaying: boolean = false;
   /** 搜索来源抽屉展开态：默认收起 */
@@ -245,11 +250,35 @@ export struct AssistantBody {
             .fontSize(Fonts.body3())
             .fontColor($r('app.color.warning'))
             .layoutWeight(1)
+          if (this.message.error.kind === 'upload') {
+            // 附件上传失败：重试按钮（原回答位置重新补传并请求）
+            Text(I18n.translate('retryAction'))
+              .fontSize(Fonts.body3())
+              .fontColor($r('app.color.brand'))
+              .padding({ left: 8, top: 4, bottom: 4, right: 8 })
+              .onClick(() => {
+                this.onRetryUpload();
+              })
+          }
         }
         .padding(10)
         .backgroundColor($r('app.color.thinking_bg'))
         .borderRadius(Dim.radiusM)
         .width('100%')
+      }
+
+      // 续写：被停止或达到输出上限的末条回答可继续
+      if (this.isLast && RequestBodyBuilder.canContinueReply(this.message)) {
+        Button(I18n.translate('continueReply'))
+          .fontSize(Fonts.body3())
+          .fontColor($r('app.color.brand'))
+          .backgroundColor($r('app.color.thinking_bg'))
+          .borderRadius(Dim.radiusM)
+          .height(32)
+          .padding({ left: 14, right: 14 })
+          .onClick(() => {
+            this.onContinue();
+          })
       }
 
       // 操作行：AI 内容显式标识（左）+ 复制 / 朗读 / 重新生成（右）

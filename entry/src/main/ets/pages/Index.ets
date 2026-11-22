@@ -7,6 +7,7 @@ import { LegalDocPage, buildPrivacySections, buildAgreementSections, buildAiInfo
 import { SettingsPage } from '../components/settings/SettingsPage';
 import { ModelConfigPage } from '../components/settings/ModelConfigPage';
 import { DataManagePage } from '../components/settings/DataManagePage';
+import { ImportLinkPage } from '../components/settings/ImportLinkPage';
 import { UsagePage } from '../components/usage/UsagePage';
 import { PersonaPage } from '../components/persona/PersonaPage';
 import { HomePage } from './HomePage';
@@ -107,6 +108,8 @@ struct Index {
       ModelConfigPage({ pathStack: this.pathStack })
     } else if (name === 'data') {
       DataManagePage({ pathStack: this.pathStack })
+    } else if (name === 'importLink') {
+      ImportLinkPage({ pathStack: this.pathStack })
     }
   }
 }

@@ -37,6 +37,10 @@ export const ZH_CHAT: Record<string, string> = {
   'compactMarker': '—— 以上对话已压缩为摘要 ——',
   'messageQueued': '已加入队列，当前回复结束后自动发送',
   'sendNow': '立即',
+  'continueReply': '继续生成',
+  'retryAction': '重试',
+  'saveFailedBanner': '部分消息保存失败',
+  'loadFailedBanner': '消息加载失败',
   'thinkingEffortLow': '较低',
   'thinkingEffortStandard': '标准',
   'thinkingEffortMax': '最高',
@@ -45,8 +49,6 @@ export const ZH_CHAT: Record<string, string> = {
   'attachFile': '文件',
   'attachUnsupported': '不支持的文件类型：{name}',
   'attachOversize': '文件过大（上限 {limit} MB）：{name}',
-  'voiceInputTimer': '录音中 {seconds}s',
-  'voiceInputCancel': '正在转写，点击取消',
 };
 
 export const EN_CHAT: Record<string, string> = {
@@ -87,6 +89,10 @@ export const EN_CHAT: Record<string, string> = {
   'compactMarker': '—— Earlier messages compacted into summary ——',
   'messageQueued': 'Queued — sends automatically after the current reply',
   'sendNow': 'Send now',
+  'continueReply': 'Continue',
+  'retryAction': 'Retry',
+  'saveFailedBanner': 'Some messages failed to save',
+  'loadFailedBanner': 'Failed to load messages',
   'thinkingEffortLow': 'Low',
   'thinkingEffortStandard': 'Standard',
   'thinkingEffortMax': 'Maximum',
@@ -95,6 +101,4 @@ export const EN_CHAT: Record<string, string> = {
   'attachFile': 'Files',
   'attachUnsupported': 'Unsupported file type: {name}',
   'attachOversize': 'File too large (max {limit} MB): {name}',
-  'voiceInputTimer': 'Recording {seconds}s',
-  'voiceInputCancel': 'Transcribing. Tap to cancel',
 };

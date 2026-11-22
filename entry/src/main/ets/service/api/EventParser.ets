@@ -141,6 +141,7 @@ function parseBlock(value: Object | null | undefined): ProtocolBlock | null {
     }
     const b = new ProtocolBlock();
     b.type = 'server_tool_use';
+    b.rawJson = JSON.stringify(r);
     b.serverToolUse = new ProtocolServerToolUse();
     b.serverToolUse.id = id;
     b.serverToolUse.name = name;
@@ -157,6 +158,7 @@ function parseBlock(value: Object | null | undefined): ProtocolBlock | null {
     }
     const b = new ProtocolBlock();
     b.type = 'web_search_tool_result';
+    b.rawJson = JSON.stringify(r);
     b.searchResult = new ProtocolSearchResultBlock();
     b.searchResult.toolUseId = toolUseId;
     b.searchResult.kind = kind as ServerToolKind;
@@ -201,6 +203,7 @@ function parseBlock(value: Object | null | undefined): ProtocolBlock | null {
     }
     const b = new ProtocolBlock();
     b.type = 'web_fetch_tool_result';
+    b.rawJson = JSON.stringify(r);
     b.fetchResult = new ProtocolFetchResultBlock();
     b.fetchResult.toolUseId = toolUseId;
     b.fetchResult.kind = kind as ServerToolKind;

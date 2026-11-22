@@ -69,6 +69,24 @@ export struct DataManagePage {
             }
             .width('100%')
             .alignItems(HorizontalAlign.Start)
+            Column({ space: 8 }) {
+              SettingRow({
+                label: I18n.translate('historyImportFromLink'),
+                carded: true,
+                showArrow: true,
+                tappable: true,
+                onRowTap: (): void => {
+                  this.pathStack.pushPathByName('importLink', null);
+                },
+              })
+              Text(I18n.translate('historyImportLinkRowHint'))
+                .fontSize(Fonts.caption())
+                .fontColor($r('app.color.text_tertiary'))
+                .width('100%')
+                .padding({ left: 4, right: 4 })
+            }
+            .width('100%')
+            .alignItems(HorizontalAlign.Start)
             SettingRow({
               label: I18n.translate('exportAllLabel'),
               carded: true,

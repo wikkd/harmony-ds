@@ -23,6 +23,8 @@ export class FileAttachment {
   @Trace size: number = 0;
   @Trace isImage: boolean = false;
   @Trace mimeType: string = '';
+  /** 上传状态：local（未传）/ uploading / done / error；不持久化，加载时按 serverId 推导 */
+  @Trace uploadStatus: string = 'local';
   /** 沙箱内原件路径（导入的没有原件时为空） */
   localPath: string = '';
 }
@@ -51,6 +53,8 @@ export class ServerToolPart {
   @Trace toolUse: ProtocolServerToolUse | null = null;
   @Trace searchResult: ProtocolSearchResultBlock | null = null;
   @Trace fetchResult: ProtocolFetchResultBlock | null = null;
+  /** 原始协议块 JSON，历史回传时原样发送（对齐官方“原样回传”） */
+  @Trace rawJson: string = '';
 }
 
 /** 回复内容块联合：type 区分 text/thinking/tool */

@@ -10,6 +10,9 @@ import { UserMessage, FileAttachment, AssistantMessage, isAssistant } from '../m
 import { ModelInfo } from '../model/ModelInfo';
 import { Id } from '../common/Format';
 import { AttachmentService, AttachPickResult } from '../service/attachments/AttachmentService';
+import { ChatDb } from '../service/db/ChatDb';
+import { KeyVault } from '../prefs/KeyVault';
+import { AppContextHolder } from '../common/AppContextHolder';
 
 /** 会话主视图（V2）：欢迎态 / 可见链消息列表 + 受控输入 */
 @ComponentV2
@@ -25,17 +28,95 @@ export struct ChatView {
   @Local dockH: number = 170;
   /** 「立即」待发项：停止当前流后优先发出 */
   private immediatePending: QueuedSend | null = null;
+  /** 草稿归属会话：切换会话时先把旧草稿落盘再加载新会话草稿 */
+  private draftSid: string = '';
+  /** 草稿防抖落盘定时器 */
+  private draftTimer: number = -1;
   @Param onNeedKey: () => void = () => {};
   /** 手势条高度（vp）：输入区底部避让 */
   @Param safeBottom: number = 0;
 
   aboutToAppear(): void {
     this.store.onStreamingEnd = (): void => this.drainOnStreamEnd();
+    this.loadDraftFor(this.store.currentSessionId);
   }
 
   aboutToDisappear(): void {
     if (this.store.onStreamingEnd === this.drainOnStreamEnd) {
       this.store.onStreamingEnd = null;
+    }
+    this.flushDraftTimer();
+  }
+
+  /** 当前会话 id 的计算属性：@Monitor 依赖（V2 无 @Watch） */
+  @Computed
+  get currentSessionIdV2(): string {
+    return this.store.currentSessionId;
+  }
+
+  @Monitor('currentSessionIdV2')
+  onCurrentSessionSwap(monitor: IMonitor): void {
+    if (monitor.dirty.includes('currentSessionIdV2')) {
+      this.loadDraftFor(this.store.currentSessionId);
+    }
+  }
+
+  /** 草稿按会话持久化：切换时旧草稿落盘、新会话草稿回填（编辑态不跨会话保留） */
+  private loadDraftFor(sid: string): void {
+    this.flushDraftTimer();
+    this.draftSid = sid;
+    this.draft = '';
+    this.editingId = '';
+    if (sid === '') {
+      return;
+    }
+    ChatDb.getDraft(sid).then((text: string) => {
+      if (this.draftSid === sid) {
+        this.draft = text;
+      }
+    }).catch((): void => {});
+  }
+
+  /** 输入防抖 400ms 落盘；空草稿删除记录 */
+  private scheduleDraftSave(): void {
+    if (this.draftTimer >= 0) {
+      clearTimeout(this.draftTimer);
+    }
+    this.draftTimer = setTimeout((): void => {
+      this.draftTimer = -1;
+      this.persistDraft();
+    }, 400);
+  }
+
+  private persistDraft(): void {
+    if (this.draftSid === '') {
+      return;
+    }
+    if (this.draft.trim() === '') {
+      ChatDb.deleteDraft(this.draftSid).catch((): void => {});
+    } else {
+      ChatDb.setDraft(this.draftSid, this.draft).catch((): void => {});
+    }
+  }
+
+  /** 防抖定时器立即触发（落盘当前草稿后交出控制权） */
+  private flushDraftTimer(): void {
+    if (this.draftTimer < 0) {
+      return;
+    }
+    clearTimeout(this.draftTimer);
+    this.draftTimer = -1;
+    this.persistDraft();
+  }
+
+  /** 草稿已被消费（发送/取消编辑）：取消防抖并删除持久化记录 */
+  private clearDraftPersist(): void {
+    if (this.draftTimer >= 0) {
+      clearTimeout(this.draftTimer);
+      this.draftTimer = -1;
+    }
+    if (this.draftSid !== '') {
+      ChatDb.deleteDraft(this.draftSid).catch((): void => {});
     }
   }
 
@@ -150,6 +231,19 @@ export struct ChatView {
       .height('100%')
 
       Column() {
+        // DB 读写失败横幅：保存失败可重试补写，加载失败可重试重读
+        if (this.store.saveFailed) {
+          this.storeBanner($r('app.media.ic_public_error'), 'saveFailedBanner',
+            (): void => {
+              this.store.retryFailedSaves();
+            });
+        }
+        if (this.store.loadFailed) {
+          this.storeBanner($r('app.media.ic_public_error'), 'loadFailedBanner',
+            (): void => {
+              this.store.retryLoad();
+            });
+        }
         if (this.queue.length > 0) {
           Column({ space: 6 }) {
             ForEach(this.queue, (q: QueuedSend) => {
@@ -213,6 +307,7 @@ export struct ChatView {
         sessionOutputTokens: this.stat.sessionOutput,
         onTextChange: (v: string) => {
           this.draft = v;
+          this.scheduleDraftSave();
         },
         onSend: (text: string) => {
           this.dispatchSend(text);
@@ -220,6 +315,7 @@ export struct ChatView {
         onCancelEdit: () => {
           this.editingId = '';
           this.draft = '';
+          this.clearDraftPersist();
         },
         onStop: () => {
           ReplyEngine.stop(this.store.currentSessionId);
@@ -240,6 +336,8 @@ export struct ChatView {
           this.attachFiles(AttachmentService.pickDocs(this.draftFiles.length));
         },
         onRemoveFile: (f: FileAttachment) => {
+          // 移除即取消进行中的预上传（请求 destroy），已完成的保留服务端文件
+          AttachmentService.cancelUpload(f);
           const idx = this.draftFiles.indexOf(f);
           if (idx >= 0) {
             this.draftFiles.splice(idx, 1);
@@ -273,6 +371,35 @@ export struct ChatView {
     .alignSelf(ItemAlign.Center)
   }
 
+  /** DB 异常横幅：警示图标 + 文案 + 重试入口 */
+  @Builder
+  storeBanner(icon: Resource, messageKey: string, onRetry: () => void) {
+    Row({ space: 8 }) {
+      Image(icon)
+        .width(14)
+        .height(14)
+        .fillColor($r('app.color.warning'))
+      Text(I18n.translate(messageKey))
+        .fontSize(Fonts.body3())
+        .fontColor($r('app.color.text_secondary'))
+        .layoutWeight(1)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+      Text(I18n.translate('retryAction'))
+        .fontSize(Fonts.body3())
+        .fontColor($r('app.color.brand_activated'))
+        .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
+        .onClick(() => {
+          onRetry();
+        })
+    }
+    .width('100%')
+    .height(36)
+    .padding({ left: 12, right: 12 })
+    .backgroundColor($r('app.color.component_normal'))
+    .borderRadius(Dim.radiusM)
+  }
+
   /** 压缩会话：摘要请求 → 写入会话 → 提示结果 */
   private doCompact(): void {
     if (this.store.streamingSessionId !== null) {
@@ -303,12 +430,13 @@ export struct ChatView {
     });
   }
 
-  /** 附件选择结果并入草稿；被拒文件给提示（类型/大小），不再静默吞掉 */
+  /** 附件选择结果并入草稿；被拒文件给提示（类型/大小），不再静默吞掉；选中即预上传 */
   private attachFiles(pending: Promise<AttachPickResult>): void {
     pending.then((picked: AttachPickResult) => {
       for (const f of picked.files) {
         this.draftFiles.push(f);
       }
+      this.preupload(picked.files);
       if (picked.rejectedKey !== '') {
         this.getUIContext().getPromptAction().showToast({
           message: I18n.translate(picked.rejectedKey, {
@@ -321,6 +449,21 @@ export struct ChatView {
     }).catch(() => {});
   }
 
+  /** 预上传：取 key 后逐文件 fire-and-forget；失败静默（chip 显失败态，发送时再重试） */
+  private preupload(files: FileAttachment[]): void {
+    if (files.length === 0) {
+      return;
+    }
+    KeyVault.load(AppContextHolder.get()).then((key: string | null) => {
+      if (key === null || key === '') {
+        return;
+      }
+      for (const f of files) {
+        AttachmentService.beginUpload(key, f);
+      }
+    }).catch((): void => {});
+  }
+
   private dispatchSend(text: string): void {
     // 斜杠命令：/compact 与 /压缩（会话）等价，触发会话压缩而非发送
     const trimmed = text.trim();
@@ -329,6 +472,7 @@ export struct ChatView {
       this.editingId = '';
       this.draft = '';
       this.draftFiles = [];
+      this.clearDraftPersist();
       this.doCompact();
       return;
     }
@@ -342,6 +486,7 @@ export struct ChatView {
       this.draft = '';
       this.draftFiles = [];
       this.editingId = '';
+      this.clearDraftPersist();
       this.getUIContext().getPromptAction()
         .showToast({ message: I18n.translate('messageQueued'), duration: Motion.toastMid });
       return;
@@ -351,6 +496,7 @@ export struct ChatView {
       files = [];
     }
     this.draftFiles = [];
+    this.clearDraftPersist();
     // 上下文将满：弹窗询问是否先压缩再发送（编辑重发同样适用）
     if (ModelInfo.isContextFull(this.stat.used)) {
       const editingId = this.editingId;

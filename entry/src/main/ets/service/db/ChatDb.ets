@@ -22,7 +22,7 @@ import { Logger } from '../../common/Logger';
 const TAG: string = 'ChatDb';
 const DB_NAME: string = 'chat.db';
 /** schema 版本：结构变更时递增并在启动时迁移 */
-const SCHEMA_VERSION: number = 2;
+const SCHEMA_VERSION: number = 3;
 
 /**
  * RelationalStore 持久层：
@@ -63,6 +63,11 @@ export class ChatDb {
         payloadJson TEXT NOT NULL
       )`);
     await store.executeSql(`CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(sessionId, seq)`);
+    await store.executeSql(
+      `CREATE TABLE IF NOT EXISTS drafts (
+        sessionId TEXT PRIMARY KEY,
+        text TEXT NOT NULL DEFAULT ''
+      )`);
     // 迁移：v1 库补 compact 两列（列已存在则忽略）
     let version = 0;
     const vrs = await store.querySql('PRAGMA user_version');
@@ -134,6 +139,9 @@ export class ChatDb {
       const pMsg = new relationalStore.RdbPredicates('messages');
       pMsg.equalTo('sessionId', id);
       await tx.delete(pMsg);
+      const pDraft = new relationalStore.RdbPredicates('drafts');
+      pDraft.equalTo('sessionId', id);
+      await tx.delete(pDraft);
       const pSes = new relationalStore.RdbPredicates('sessions');
       pSes.equalTo('id', id);
       await tx.delete(pSes);
@@ -154,6 +162,7 @@ export class ChatDb {
     const tx = await db.createTransaction();
     try {
       await tx.delete(new relationalStore.RdbPredicates('messages'));
+      await tx.delete(new relationalStore.RdbPredicates('drafts'));
       await tx.delete(new relationalStore.RdbPredicates('sessions'));
       await tx.commit();
     } catch (err) {
@@ -165,6 +174,37 @@ export class ChatDb {
       throw err as Error;
     }
     ChatDb.clearAttachmentCache();
+  }
+
+  // ---------- drafts ----------
+
+  static async getDraft(sessionId: string): Promise<string> {
+    const db = ChatDb.db();
+    const p = new relationalStore.RdbPredicates('drafts');
+    p.equalTo('sessionId', sessionId);
+    const rs = await db.query(p, ['text']);
+    try {
+      if (rs.goToFirstRow()) {
+        return rs.getString(0) ?? '';
+      }
+      return '';
+    } finally {
+      rs.close();
+    }
+  }
+
+  static async setDraft(sessionId: string, text: string): Promise<void> {
+    const bucket: relationalStore.ValuesBucket = {
+      'sessionId': sessionId,
+      'text': text,
+    };
+    await ChatDb.db().insert('drafts', bucket, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+  }
+
+  static async deleteDraft(sessionId: string): Promise<void> {
+    const p = new relationalStore.RdbPredicates('drafts');
+    p.equalTo('sessionId', sessionId);
+    await ChatDb.db().delete(p);
   }
 
   /** 收集会话内全部附件本地路径（供删除会话后清理缓存文件） */
@@ -401,6 +441,7 @@ export class ChatDb {
         a.isImage = (f['isImage'] as boolean) ?? false;
         a.mimeType = (f['mimeType'] as string) ?? '';
         a.localPath = (f['localPath'] as string) ?? '';
+        a.uploadStatus = a.serverId !== null ? 'done' : 'local';
         m.files.push(a);
       }
     }

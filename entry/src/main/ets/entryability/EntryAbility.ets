@@ -95,5 +95,7 @@ export default class EntryAbility extends UIAbility {
   onBackground(): void {
     hilog.info(DOMAIN, TAG, 'Ability onBackground');
     AppStorage.setOrCreate<boolean>('appForeground', false);
+    // 退后台：流式节流落盘立即冲刷（中断时数据已在盘）
+    ChatStore.get().flushBackground();
   }
 }

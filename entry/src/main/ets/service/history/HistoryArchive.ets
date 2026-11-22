@@ -1,5 +1,7 @@
 import zlib from '@ohos.zlib';
 import fs from '@ohos.file.fs';
+import { http } from '@kit.NetworkKit';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { AppContextHolder } from '../../common/AppContextHolder';
 import { Logger } from '../../common/Logger';
 import { ChatDb } from '../db/ChatDb';
@@ -103,6 +105,115 @@ export class HistoryArchive {
         fs.rmdirSync(destDir);
       } catch (e) {
         // 忽略清理失败
+      }
+    }
+  }
+
+  // ---------- 官方链接导入 ----------
+
+  /**
+   * 从任意文本（邮件正文/分享内容）中提取 DeepSeek 官方导出链接，未识别返回 null。
+   * 官方导出托管在华为云 OBS（区域段可能变化），按域名前缀匹配；
+   * 从邮件正文整段复制时链接尾部可能带句读，一并剥掉。
+   */
+  static extractExportUrl(text: string): string | null {
+    const m = text.match(/https:\/\/deepseek-chat-history-exports-prod\.obs\.[a-z0-9-]+\.myhuaweicloud\.com\/[^\s'"<>]+/);
+    if (m === null) {
+      return null;
+    }
+    return m[0].replace(/[),.;!?:}\]。，；：）】》”’]+$/, '');
+  }
+
+  /**
+   * 下载官方导出 ZIP 到沙箱临时文件，返回路径（用毕由调用方删除）。
+   * 完成判定用 dataEnd 事件而非 requestInStream 的 Promise——部分设备上它要等
+   * 整段流结束才 resolve（ApiClient 踩过，dev-notes 有记录）；结果用 ZIP 魔数校验，
+   * 签名过期/失效时 OBS 返回 XML 错误体，不能当 ZIP 进导入流程。
+   */
+  static async downloadZip(url: string): Promise<string> {
+    const context = AppContextHolder.get();
+    const tmp = `${context.cacheDir}/import_dl_${Date.now()}.zip`;
+    const client = http.createHttp();
+    let file: fs.File | null = null;
+    try {
+      file = fs.openSync(tmp, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+      const fd = file.fd;
+      let failed = false;
+      // 首块前两字节即 ZIP 魔数（PK）：ReadOptions 不支持绝对 position 回读，直接在收流时嗅探
+      let head0 = -1;
+      let head1 = -1;
+      await new Promise<void>((resolve: () => void) => {
+        let settled = false;
+        const finish = (): void => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          resolve();
+        };
+        client.on('dataReceive', (chunk: ArrayBuffer): void => {
+          try {
+            if (head0 === -1) {
+              const b = new Uint8Array(chunk);
+              head0 = b.length > 0 ? b[0] : -1;
+              head1 = b.length > 1 ? b[1] : -1;
+            }
+            fs.writeSync(fd, chunk);
+          } catch (e) {
+            failed = true;
+            finish();
+          }
+        });
+        client.on('dataEnd', (): void => {
+          finish();
+        });
+        client.requestInStream(url, {
+          method: http.RequestMethod.GET,
+          connectTimeout: 15000,
+          readTimeout: 600000,
+        }).then((code: number) => {
+          if (code < 200 || code >= 300) {
+            Logger.warn(TAG, `export download http ${code}`);
+          }
+        }, (err: BusinessError) => {
+          failed = true;
+          Logger.warn(TAG, `export download failed: code=${err.code} message=${err.message}`);
+          finish();
+        });
+      });
+      if (failed) {
+        throw new ArchiveError('historyDownloadFailed');
+      }
+      // ZIP 魔数校验：签名过期/失效时 OBS 返回 XML 错误体，不能当 ZIP 进导入流程
+      if (head0 !== 0x50 || head1 !== 0x4B) {
+        throw new ArchiveError('historyDownloadFailed');
+      }
+      fs.closeSync(file);
+      file = null;
+      return tmp;
+    } catch (err) {
+      if (file !== null) {
+        try {
+          fs.closeSync(file);
+        } catch (e) {
+          // 忽略
+        }
+        file = null;
+      }
+      try {
+        fs.unlinkSync(tmp);
+      } catch (e) {
+        // 忽略
+      }
+      if (err instanceof ArchiveError) {
+        throw err;
+      }
+      throw new ArchiveError('historyDownloadFailed');
+    } finally {
+      try {
+        client.destroy();
+      } catch (e) {
+        // 忽略
       }
     }
   }

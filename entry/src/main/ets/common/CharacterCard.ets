@@ -14,8 +14,8 @@ const KNOWN_KEYS: Record<string, string> = {
   'greeting': '开场白',
   'mes_example': '对话示例',
 };
-/** 组装顺序（名字在前，开场白收尾） */
-const KEY_ORDER: string[] = ['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example'];
+/** 组装顺序（名字在前，开场白收尾；greeting 与 first_mes 同为开场白） */
+const KEY_ORDER: string[] = ['name', 'description', 'personality', 'scenario', 'first_mes', 'greeting', 'mes_example'];
 /** 与个性化输入框 maxLength 保持一致 */
 const MAX_LEN: number = 2000;
 

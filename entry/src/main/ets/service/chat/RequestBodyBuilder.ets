@@ -65,26 +65,34 @@ export class RequestBodyBuilder {
         }
         continue;
       }
-      if (round.user.content === '' ) {
+      if (round.user.content === '' && !RequestBodyBuilder.hasServerFile(round.user)) {
+        // 历史提问没有文字、附件也都没有 serverId 时，连同回答一起省略
         continue;
       }
       appendReminder(round.reply.latestReminder);
-      const um: Record<string, Object> = { 'role': 'user', 'content': round.user.content };
+      const um: Record<string, Object> = { 'role': 'user', 'content': RequestBodyBuilder.userParam(round.user) };
       messages.push(um);
-      const am: Record<string, Object> = { 'role': 'assistant', 'content': RequestBodyBuilder.assistantTextParam(round.reply) };
+      const am: Record<string, Object> = { 'role': 'assistant', 'content': RequestBodyBuilder.assistantParam(round.reply) };
       messages.push(am);
     }
     appendReminder(latestReminder);
     const q: Record<string, Object> = { 'role': 'user', 'content': RequestBodyBuilder.userParam(question) };
     messages.push(q);
     if (prefix !== null && prefix.prefix) {
-      const text = RequestBodyBuilder.assistantTextParam(prefix);
-      const hasContent = (text as Array<Object>).some((b) => {
+      const blocks = RequestBodyBuilder.assistantParam(prefix, true, thinking);
+      // 没有非空白正文或有效思考时直接重发原问题，避免服务端拒绝空 Prefill
+      const hasContent = blocks.some((b) => {
         const r = b as Record<string, Object>;
-        return typeof r['text'] === 'string' && (r['text'] as string).trim() !== '';
+        if (r['type'] === 'text' && typeof r['text'] === 'string') {
+          return (r['text'] as string).trim() !== '';
+        }
+        if (r['type'] === 'thinking' && typeof r['thinking'] === 'string') {
+          return (r['thinking'] as string).trim() !== '';
+        }
+        return false;
       });
       if (hasContent) {
-        const am: Record<string, Object> = { 'role': 'assistant', 'content': text };
+        const am: Record<string, Object> = { 'role': 'assistant', 'content': blocks };
         messages.push(am);
       }
     }
@@ -151,26 +159,38 @@ ${persona}`;
     return JSON.stringify(body);
   }
 
-  /** 历史中「提问 + 有回答」成对的轮次（M2 线性版） */
+  /** 历史中「提问 + 有回答」成对的轮次（对齐官方 getContextRounds） */
   static getContextRounds(history: Message[]): Array<UserAssistantPair> {
     const rounds: Array<UserAssistantPair> = [];
     for (let i = 0; i + 1 < history.length; i++) {
       const u = history[i];
       const r = history[i + 1];
-      if (isUser(u) && isAssistant(r)) {
-        const a = r as AssistantMessage;
-        const usable = (a.status === 'done' || a.status === 'stopped')
-          && a.stopReason !== 'refusal' && RequestBodyBuilder.replyText(a) !== '';
-        if (usable) {
-          rounds.push(new UserAssistantPair(u as UserMessage, a));
-          i++;
-        }
+      if (isUser(u) && isAssistant(r) && RequestBodyBuilder.isUsableReply(r as AssistantMessage)) {
+        rounds.push(new UserAssistantPair(u as UserMessage, r as AssistantMessage));
+        i++;
       }
     }
     return rounds;
   }
 
-  private static replyText(reply: AssistantMessage): string {
+  /** 已结束或停止且有回答文本的回复才放进上下文；被安全拒绝、含服务端模板提示的轮次不回传 */
+  static isUsableReply(reply: AssistantMessage): boolean {
+    if (reply.status !== 'done' && reply.status !== 'stopped') {
+      return false;
+    }
+    if (reply.stopReason === 'refusal') {
+      return false;
+    }
+    for (const block of reply.blocks) {
+      if (block.type === 'text' && block.textPart.isTemplate) {
+        return false;
+      }
+    }
+    return RequestBodyBuilder.getReplyText(reply) !== '';
+  }
+
+  /** 回复里所有文本块拼起来，用于复制与判断是否有回答 */
+  static getReplyText(reply: AssistantMessage): string {
     let out = '';
     for (const block of reply.blocks) {
       if (block.type === 'text') {
@@ -180,8 +200,18 @@ ${persona}`;
     return out;
   }
 
-  /** 用户消息参数：有文件时先文件块后文本块 */
-  private static userParam(m: UserMessage): Object {
+  /** 用户消息是否带有效（已上传）文件 */
+  static hasServerFile(m: UserMessage): boolean {
+    for (const f of m.files) {
+      if (f.serverId !== null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** 用户消息参数：无文件时纯文本；有文件时先文件块后文本块 */
+  static userParam(m: UserMessage): Object {
     const blocks: Array<Object> = [];
     for (const f of m.files) {
       if (f.serverId === null) {
@@ -194,34 +224,105 @@ ${persona}`;
       };
       blocks.push(b);
     }
+    if (blocks.length === 0) {
+      return m.content;
+    }
     if (m.content !== '') {
       const tb: Record<string, Object> = { 'type': 'text', 'text': m.content };
       blocks.push(tb);
     }
-    if (blocks.length === 0) {
-      return '';
-    }
     return blocks;
   }
 
-  /** assistant 历史参数：相邻文本拼接（citations 去除），M2 只回传文本 */
-  static assistantTextParam(reply: AssistantMessage): Array<Object> {
+  /**
+   * assistant 内容块转换（对齐官方 toAssistantParam）：
+   * - 历史思考及其签名不回传；续写时保留本轮非空白思考及其签名；
+   * - 文本块相邻拼接，被思考或工具隔开的文本用空行连接；
+   * - 工具调用和结果只回传 read_link：缺签名的成功阅读链接整对不回传，
+   *   其余原样回传（rawJson，保留 signature/content），服务端解密后拼回正文。
+   */
+  static assistantParam(reply: AssistantMessage, prefix: boolean = false, thinking: boolean = false): Array<Object> {
     const content: Array<Object> = [];
-    let current: Record<string, Object> | null = null;
+    const unsignedReadLinks: Set<string> = new Set();
     for (const block of reply.blocks) {
-      if (block.type !== 'text' || block.textPart.isTemplate) {
-        current = null;
-        continue;
-      }
-      if (current !== null) {
-        const prev = current['text'] as string;
-        current['text'] = prev + block.textPart.text;
-      } else {
-        const textBlock: Record<string, Object> = { 'type': 'text', 'text': block.textPart.text };
-        current = textBlock;
-        content.push(textBlock);
+      const fr = block.toolPart.fetchResult;
+      if (block.type === 'tool' && fr !== null && fr.kind === 'read_link'
+        && fr.url !== '' && fr.signature.trim() === '') {
+        unsignedReadLinks.add(fr.toolUseId);
       }
     }
-    return content;
+    let text: Record<string, Object> | null = null;
+    for (const block of reply.blocks) {
+      if (prefix && block.type === 'thinking' && block.thinkingPart.thinking.trim() === '') {
+        // 空思考不改变续写位置，也不应把两段正文隔开
+        continue;
+      }
+      if (block.type === 'text') {
+        const t = block.textPart.text;
+        if (text !== null) {
+          text['text'] = (text['text'] as string) + t;
+        } else {
+          let start = t;
+          if (content.length > 0) {
+            const pr = content[content.length - 1] as Record<string, Object>;
+            if (pr['type'] === 'text') {
+              start = NL2 + t;
+            }
+          }
+          const tb: Record<string, Object> = { 'type': 'text', 'text': start };
+          text = tb;
+          content.push(tb);
+        }
+        continue;
+      }
+      text = null;
+      if (prefix && thinking && block.type === 'thinking') {
+        const tb: Record<string, Object> = {
+          'type': 'thinking',
+          'thinking': block.thinkingPart.thinking,
+          'signature': block.thinkingPart.signature,
+        };
+        content.push(tb);
+      } else if (block.type === 'tool' && block.toolPart.toolUse !== null) {
+        const tu = block.toolPart.toolUse;
+        if (tu.kind === 'read_link' && !unsignedReadLinks.has(tu.id) && block.toolPart.rawJson !== '') {
+          content.push(JSON.parse(block.toolPart.rawJson) as Record<string, Object>);
+        }
+      } else if (block.type === 'tool' && block.toolPart.fetchResult !== null) {
+        const fr = block.toolPart.fetchResult;
+        if (fr.kind === 'read_link' && !unsignedReadLinks.has(fr.toolUseId) && block.toolPart.rawJson !== '') {
+          content.push(JSON.parse(block.toolPart.rawJson) as Record<string, Object>);
+        }
+      }
+    }
+    const out: Array<Object> = [];
+    for (const item of content) {
+      const r = item as Record<string, Object>;
+      if (r['type'] === 'text' && (r['text'] as string) === '') {
+        continue;
+      }
+      out.push(item);
+    }
+    return out;
+  }
+
+  /**
+   * 只有达到输出上限或被停止的回复可续写，报错回复不能续写。
+   * 拒绝和客户端工具调用不能续写；本轮含服务端工具调用或结果的回复不能续写；
+   * 服务端模板提示不能作为续写前缀。
+   */
+  static canContinueReply(reply: AssistantMessage): boolean {
+    if (!reply.prefix || reply.stopReason === 'refusal' || reply.stopReason === 'tool_use') {
+      return false;
+    }
+    for (const block of reply.blocks) {
+      if (block.type === 'tool') {
+        return false;
+      }
+      if (block.type === 'text' && block.textPart.isTemplate) {
+        return false;
+      }
+    }
+    return reply.status === 'stopped' || (reply.status === 'done' && reply.stopReason === 'max_tokens');
   }
 }

@@ -64,6 +64,18 @@ export struct ChatInput {
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .constraintSize({ maxWidth: 120 })
+      // 上传状态：进行中转圈，失败警示（发送时会自动重试）
+      if (f.uploadStatus === 'uploading') {
+        LoadingProgress()
+          .width(12)
+          .height(12)
+          .color($r('app.color.text_tertiary'))
+      } else if (f.uploadStatus === 'error') {
+        Image($r('app.media.ic_public_error'))
+          .width(12)
+          .height(12)
+          .fillColor($r('app.color.warning'))
+      }
       Image($r('app.media.ic_public_close'))
         .width(12)
         .height(12)

@@ -64,6 +64,11 @@ export class AttachPickResult {
  * 对齐原项目 attachments.ts / uploadExts.ts 的核心流程。
  */
 export class AttachmentService {
+  /** 进行中的上传（att.id → Promise<serverId>），同附件去重 */
+  private static activeUploads: Map<string, Promise<string>> = new Map();
+  /** 进行中的 HTTP 请求（att.id → HttpRequest），供取消上传使用 */
+  private static activeRequests: Map<string, http.HttpRequest> = new Map();
+
   static extOf(name: string): string {
     const dot = name.lastIndexOf('.');
     if (dot < 0 || dot === name.length - 1) {
@@ -261,6 +266,58 @@ export class AttachmentService {
     return att.localPath;
   }
 
+  /** 触发上传但不关心结果（选中后立即预上传）；失败静默，发送时再重试 */
+  static beginUpload(apiKey: string, att: FileAttachment): void {
+    AttachmentService.ensureUploaded(apiKey, att).catch((err: ApiError) => {
+      Logger.warn(TAG, `pre-upload failed: ${att.name}: ${err.message}`);
+    });
+  }
+
+  /** 取消进行中的上传（移除附件时） */
+  static cancelUpload(att: FileAttachment): void {
+    const req = AttachmentService.activeRequests.get(att.id);
+    if (req !== undefined) {
+      AttachmentService.activeRequests.delete(att.id);
+      try {
+        req.destroy();
+      } catch (e) {
+        // 忽略
+      }
+    }
+  }
+
+  /** 确保附件已上传：已有 serverId 直接返回；进行中去重；否则上传并推进 uploadStatus */
+  static async ensureUploaded(apiKey: string, att: FileAttachment): Promise<string> {
+    if (att.serverId !== null) {
+      att.uploadStatus = 'done';
+      return att.serverId;
+    }
+    const inFlight = AttachmentService.activeUploads.get(att.id);
+    if (inFlight !== undefined) {
+      return inFlight;
+    }
+    const p = AttachmentService.runUpload(apiKey, att);
+    AttachmentService.activeUploads.set(att.id, p);
+    return p;
+  }
+
+  private static async runUpload(apiKey: string, att: FileAttachment): Promise<string> {
+    att.uploadStatus = 'uploading';
+    try {
+      const serverId = await AttachmentService.upload(apiKey, att);
+      att.uploadStatus = 'done';
+      AttachmentService.activeUploads.delete(att.id);
+      return serverId;
+    } catch (err) {
+      att.uploadStatus = 'error';
+      AttachmentService.activeUploads.delete(att.id);
+      if (err instanceof ApiError) {
+        throw err as ApiError;
+      }
+      throw new ApiError('network', `${JSON.stringify(err)}`);
+    }
+  }
+
   /** 上传到 Files API，返回 serverId */
   static async upload(apiKey: string, att: FileAttachment): Promise<string> {
     const localPath = AttachmentService.localPathOf(att);
@@ -297,6 +354,7 @@ export class AttachmentService {
     }
 
     const req = http.createHttp();
+    AttachmentService.activeRequests.set(att.id, req);
     try {
       const options: http.HttpRequestOptions = {
         method: http.RequestMethod.POST,
@@ -327,6 +385,7 @@ export class AttachmentService {
       }
       throw new ApiError('network', `${JSON.stringify(err)}`);
     } finally {
+      AttachmentService.activeRequests.delete(att.id);
       try {
         req.destroy();
       } catch (e) {

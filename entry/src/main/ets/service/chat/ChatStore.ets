@@ -22,9 +22,14 @@ export class ChatStore {
   @Trace visibleVersion: number = 0;
   /** 当前可见链（由 visibleVersion 驱动重算） */
   @Trace visible: Message[] = [];
+  /** 当前会话消息加载失败（DB 读失败，横幅提示重试） */
+  @Trace loadFailed: boolean = false;
+  /** 有会话保存失败（DB 写失败，横幅提示重试） */
+  @Trace saveFailed: boolean = false;
 
   private ready: boolean = false;
   private loadedSessions: Set<string> = new Set();
+  private failedSaveSessions: Set<string> = new Set();
 
   private constructor() {
   }
@@ -45,17 +50,33 @@ export class ChatStore {
       await ChatDb.init(AppContextHolder.get());
       this.sessions = await ChatDb.loadSessionList();
       this.ready = true;
-      if (this.sessions.length > 0) {
-        await this.switchTo(this.sessions[0].id);
-      } else {
-        await this.newSession();
-      }
+      // 冷启动默认进新会话（无后台冷启动对齐官方行为）
+      await this.landFreshSession();
       Logger.info('ChatStore', `restored ${this.sessions.length} sessions`);
     } catch (err) {
       Logger.error('ChatStore', `restore failed: ${JSON.stringify(err)}`);
       this.ready = true;
       await this.newSession();
     }
+  }
+
+  /** 冷启动落点：新会话。复用最近的未命名空会话，没有才新建（避免空会话记录堆积） */
+  private async landFreshSession(): Promise<void> {
+    // sessions 已按 updatedAt 倒序：首个未命名者即最近的空会话
+    for (const s of this.sessions) {
+      if (s.title !== '') {
+        continue;
+      }
+      const msgs = await ChatDb.loadMessages(s.id);
+      if (msgs.length === 0) {
+        s.messages = msgs;
+        this.loadedSessions.add(s.id);
+        await this.switchTo(s.id);
+        return;
+      }
+      // 未命名却有消息（标题事件未送达的异常会话）：不复用，继续找更早的
+    }
+    await this.newSession();
   }
 
   /** 流式状态统一入口：同步 AppStorage 供 V1 组件读取 */
@@ -67,6 +88,10 @@ export class ChatStore {
   onStreamTick: (() => void) | null = null;
   /** 新消息入链信号（发送/重发占位）：列表强制跳底（解除用户上滚的阅读位置） */
   onMessageAppended: (() => void) | null = null;
+  /** 会话被重命名（含自动标题）信号：流式 pending 标记撤销用 */
+  onSessionRenamed: ((sessionId: string) => void) | null = null;
+  /** 应用退后台信号：流式节流落盘立即冲刷 */
+  onBackgroundFlush: (() => void) | null = null;
 
   notifyStreamTick(): void {
     if (this.onStreamTick !== null) {
@@ -119,9 +144,22 @@ export class ChatStore {
       return;
     }
     if (!this.loadedSessions.has(id)) {
-      s.messages = await ChatDb.loadMessages(id);
-      this.loadedSessions.add(id);
+      try {
+        s.messages = await ChatDb.loadMessages(id);
+        this.loadedSessions.add(id);
+      } catch (err) {
+        Logger.error('ChatStore', `load messages failed: ${JSON.stringify(err)}`);
+        this.loadFailed = true;
+        s.messages = [];
+        this.loadedSessions.add(id);
+        this.recomputeVisible(s);
+        this.visibleVersion++;
+        return;
+      }
+      // 加载快照里仍在流式的回复：进程被杀导致的中断，收尾为 stopped
+      this.settleInterrupted(s);
     }
+    this.loadFailed = false;
     this.recomputeVisible(s);
     this.visibleVersion++;
   }
@@ -154,6 +192,9 @@ export class ChatStore {
     s.title = title.trim();
     s.updatedAt = Date.now();
     await ChatDb.updateSessionMeta(s);
+    if (this.onSessionRenamed !== null) {
+      this.onSessionRenamed(id);
+    }
   }
 
   /** 中止在途流（默认当前会话）：删除/导入等破坏性操作前调用，避免旧流继续写库 */
@@ -163,12 +204,12 @@ export class ChatStore {
       return;
     }
     if (this.onAbortStream !== null) {
+      // ReplyEngine.stop 异步收尾：结束时由 runStream 的 finally 统一置空并派发结束回调
       this.onAbortStream(target);
+      return;
     }
-    // stop() 正常会同步置空；仅在未注册回调时兜底，避免重复触发 onStreamingEnd
-    if (this.streamingSessionId === target) {
-      this.setStreaming(null);
-    }
+    // 未注册中止回调时兜底置空（正常仅出现在 Engine 未初始化的窗口）
+    this.setStreaming(null);
   }
 
   /** 本地恢复是否已完成（测试注入等待用） */
@@ -362,6 +403,78 @@ export class ChatStore {
   async persistMessage(session: Session, m: Message): Promise<void> {
     await ChatDb.updateMessage(session.id, session.messages.length, m);
     await ChatDb.updateSessionMeta(session);
+  }
+
+  /** 持久化一条消息（安全版）：失败不抛，置 saveFailed 供横幅提示重试 */
+  async persistMessageSafe(session: Session, m: Message): Promise<void> {
+    try {
+      await this.persistMessage(session, m);
+    } catch (err) {
+      Logger.error('ChatStore', `persist message failed: ${JSON.stringify(err)}`);
+      this.failedSaveSessions.add(session.id);
+      this.saveFailed = true;
+    }
+  }
+
+  /** 重试全部失败的会话保存：逐会话全量重写消息与元数据 */
+  async retryFailedSaves(): Promise<void> {
+    const failed: Set<string> = new Set();
+    for (const sid of this.failedSaveSessions) {
+      const s = this.sessionById(sid);
+      if (s === null) {
+        continue; // 会话已删除，失败记录随之丢弃
+      }
+      try {
+        for (let i = 0; i < s.messages.length; i++) {
+          await ChatDb.updateMessage(s.id, i, s.messages[i]);
+        }
+        await ChatDb.updateSessionMeta(s);
+      } catch (err) {
+        Logger.error('ChatStore', `retry save failed: ${JSON.stringify(err)}`);
+        failed.add(sid);
+      }
+    }
+    this.failedSaveSessions = failed;
+    this.saveFailed = failed.size > 0;
+  }
+
+  /** 重试当前会话加载：丢弃缓存重新读库 */
+  async retryLoad(): Promise<void> {
+    this.loadFailed = false;
+    this.loadedSessions.delete(this.currentSessionId);
+    await this.switchTo(this.currentSessionId);
+  }
+
+  /** 应用退后台：冲刷流式节流落盘（由 EntryAbility.onBackground 调用） */
+  flushBackground(): void {
+    if (this.onBackgroundFlush !== null) {
+      this.onBackgroundFlush();
+    }
+  }
+
+  /**
+   * 收尾加载快照中仍在流式/占位的回复（进程被杀导致的中断）：
+   * 置为 stopped 并关闭未收尾的思考块，随后安全落盘。
+   * 本地实现（不依赖 ReplyEngine，避免循环依赖）。
+   */
+  private settleInterrupted(s: Session): void {
+    for (const m of s.messages) {
+      if (!isAssistant(m)) {
+        continue;
+      }
+      const a = m as AssistantMessage;
+      if (a.status !== 'streaming' && a.status !== 'pending') {
+        continue;
+      }
+      a.status = 'stopped';
+      a.error = null;
+      for (const b of a.blocks) {
+        if (b.type === 'thinking' && b.thinkingPart.startedAt !== 0 && b.thinkingPart.endedAt === 0) {
+          b.thinkingPart.endedAt = Date.now();
+        }
+      }
+      this.persistMessageSafe(s, m);
+    }
   }
 
   /** 持久化会话元数据 */
