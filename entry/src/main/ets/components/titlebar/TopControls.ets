@@ -7,7 +7,8 @@ import { PeakPeriod } from '../../common/PeakPeriod';
  * 顶部浮层控件：左侧抽屉按钮（无底色，不遮挡消息）+
  * 右侧「红绿灯+设置」胶囊（毛玻璃半透明，半遮挡消息会话）。
  * 消息列表从两者下方滚过。
- * 沉浸光感：顶部悬浮用 ULTRA_THIN + 渐变模糊（官方建议）；触控区 ≥40×40vp（UX 硬性标准）。
+ * 沉浸光感：半透明毛玻璃（THIN 模糊 + 低不透明度蒙层），文字滚过时可见地被模糊；
+ * 触控区 ≥40×40vp（UX 硬性标准）。
  */
 
 /** 侧边栏抽屉按钮：与 StatusCapsule 同款毛玻璃胶囊（单图标） */
@@ -27,8 +28,8 @@ export struct DrawerButton {
     .height(40)
     .justifyContent(FlexAlign.Center)
     .borderRadius(Dim.radiusL)
-    // 毛玻璃半透明：与右侧胶囊一致，消息从下方滚过时透出内容
-    .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THIN)
+    // 毛玻璃半透明：低不透明度蒙层 + THIN 模糊，文字从下方滚过时可见地被模糊
+    .backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
     .backgroundColor($r('app.color.blur_titlebar'))
     .shadow({ radius: 12, color: 'rgba(0,0,0,0.10)', offsetY: 1 })
     .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
@@ -116,8 +117,8 @@ export struct StatusCapsule {
     .height(40)
     .borderRadius(Dim.radiusL)
     .alignItems(VerticalAlign.Center)
-    // 毛玻璃半透明：消息从胶囊下方滚过时透出内容
-    .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THIN)
+    // 毛玻璃半透明：低不透明度蒙层 + THIN 模糊，文字从下方滚过时可见地被模糊
+    .backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
     .backgroundColor($r('app.color.blur_titlebar'))
     .shadow({ radius: 12, color: 'rgba(0,0,0,0.10)', offsetY: 1 })
   }
