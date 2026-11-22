@@ -43,7 +43,9 @@ export struct HomePage {
           .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
 
           // 顶部浮层控件行：左抽屉钮、右胶囊（毛玻璃半遮挡）。
-          // 用 Row+padding 定位——position 下的 margin 不生效
+          // 用 Row+padding 定位——position 下的 margin 不生效。
+          // 宽屏（≥840vp）时 ChatView 收拢为 chatColumnMax 居中列，
+          // 本行须同步收拢居中，否则胶囊贴物理屏缘、与聊天列脱开（横屏通栏错位）。
           Row() {
             DrawerButton({
               onTap: (): void => {
@@ -63,6 +65,7 @@ export struct HomePage {
             })
           }
           .width('100%')
+          .constraintSize({ maxWidth: Dim.chatColumnMax })
           .alignItems(VerticalAlign.Top)
           .padding({ left: 12, right: 12, top: 12 })
         }

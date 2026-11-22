@@ -365,7 +365,7 @@ export struct ChatView {
         this.dockH = Number(nv.height);
       })
     }
-    .constraintSize({ maxWidth: Dim.contentMaxWidth + 32 })
+    .constraintSize({ maxWidth: Dim.chatColumnMax })
     .width('100%')
     .height('100%')
     .alignSelf(ItemAlign.Center)

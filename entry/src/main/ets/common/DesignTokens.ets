@@ -30,6 +30,8 @@ export class Dim {
   static readonly inputMaxWidth: number = 800;
   /** 消息区最大宽度（平板双栏下的阅读宽度） */
   static readonly contentMaxWidth: number = 760;
+  /** 聊天主列最大宽度（contentMaxWidth + 两侧 pagePadding）：宽屏居中列，顶部浮层行须同步收拢对齐 */
+  static readonly chatColumnMax: number = Dim.contentMaxWidth + Dim.pagePadding * 2;
   /** 侧栏宽度 */
   static readonly siderWidth: number = 300;
   /** 气泡最大占比 */
